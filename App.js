@@ -1,14 +1,17 @@
 import React, { useState, useRef } from 'react';
-import { StyleSheet, View, TextInput, Button, Text, Alert, Keyboard } from 'react-native';
-import MapView, { WMSTile } from 'react-native-maps';
+import { StyleSheet, View, TextInput, Text, Alert, Keyboard, FlatList, TouchableOpacity } from 'react-native';
+import MapView, { WMSTile, Marker } from 'react-native-maps';
 import { XMLParser } from 'fast-xml-parser';
 
 export default function App() {
-  const [refCatastral, setRefCatastral] = useState('');
+  const [query, setQuery] = useState('');
+  const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [selectedParcel, setSelectedParcel] = useState(null);
+  
   const mapRef = useRef(null);
+  const typingTimer = useRef(null);
 
-  // Madrid center by default
   const initialRegion = {
     latitude: 40.4168,
     longitude: -3.7038,
@@ -16,17 +19,50 @@ export default function App() {
     longitudeDelta: 0.01,
   };
 
-  const searchByRefCatastral = async () => {
-    if (!refCatastral || refCatastral.length < 14) {
-      Alert.alert('Error', 'Introduce una referencia catastral válida (mínimo 14 caracteres).');
+  // Buscador de Direcciones usando OpenStreetMap (Nominatim)
+  const handleSearch = (text) => {
+    setQuery(text);
+    if (typingTimer.current) clearTimeout(typingTimer.current);
+    
+    if (text.length < 4) {
+      setSuggestions([]);
       return;
     }
 
-    setLoading(true);
+    typingTimer.current = setTimeout(async () => {
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&countrycodes=es&limit=5`;
+        const response = await fetch(url);
+        const data = await response.json();
+        setSuggestions(data);
+      } catch (err) {
+        console.error(err);
+      }
+    }, 500); // 500ms delay
+  };
+
+  const onSelectSuggestion = async (item) => {
     Keyboard.dismiss();
+    setSuggestions([]);
+    setQuery(item.display_name);
+    setLoading(true);
+
+    const lat = parseFloat(item.lat);
+    const lon = parseFloat(item.lon);
+
+    // 1. Mover el mapa a la dirección
+    if (mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: lat,
+        longitude: lon,
+        latitudeDelta: 0.001,
+        longitudeDelta: 0.001,
+      }, 1000);
+    }
+
+    // 2. Pedir al Catastro qué parcela hay en esa coordenada
     try {
-      // Usamos la API del Catastro para sacar las coordenadas
-      const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:4326&RefCat=${refCatastral}`;
+      const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${lon}&Coordenada_Y=${lat}`;
       const response = await fetch(url);
       const xmlData = await response.text();
       
@@ -35,35 +71,15 @@ export default function App() {
 
       const error = jsonObj?.consulta_coordenadas?.control?.cuerr;
       if (error && parseInt(error) > 0) {
-        Alert.alert('Error', 'No se encontró la parcela o hubo un error en Catastro.');
-        setLoading(false);
-        return;
-      }
-
-      // Parseamos lat y lon
-      let xcen, ycen;
-      const coord = jsonObj?.consulta_coordenadas?.coordenadas?.coord;
-      
-      if (Array.isArray(coord)) {
-        xcen = parseFloat(coord[0].geo.xcen);
-        ycen = parseFloat(coord[0].geo.ycen);
-      } else if (coord) {
-        xcen = parseFloat(coord.geo.xcen);
-        ycen = parseFloat(coord.geo.ycen);
+        Alert.alert('Catastro', 'No se ha encontrado ninguna parcela del Catastro en esta ubicación exacta.');
+        setSelectedParcel({ lat, lon, ref: 'Desconocida' });
       } else {
-        Alert.alert('Error', 'No se encontraron coordenadas.');
-        setLoading(false);
-        return;
-      }
-
-      // Centramos el mapa
-      if (mapRef.current && xcen && ycen) {
-        mapRef.current.animateToRegion({
-          latitude: ycen, // ycen es latitud (EPSG:4326)
-          longitude: xcen, // xcen es longitud
-          latitudeDelta: 0.002,
-          longitudeDelta: 0.002,
-        }, 1000);
+        const pc = jsonObj?.consulta_coordenadas?.coordenadas?.coord?.pc;
+        if (pc) {
+          const refCatastral = `${pc.pc1}${pc.pc2}`;
+          setSelectedParcel({ lat, lon, ref: refCatastral });
+          Alert.alert('Parcela Encontrada', `Referencia Catastral:\n${refCatastral}`);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -76,19 +92,27 @@ export default function App() {
   return (
     <View style={styles.container}>
       <View style={styles.searchBox}>
-        <Text style={styles.title}>Buscador del Catastro</Text>
+        <Text style={styles.title}>Buscador Inteligente</Text>
         <TextInput
           style={styles.input}
-          placeholder="Referencia Catastral (Ej: 1234567VK4713S)"
-          value={refCatastral}
-          onChangeText={setRefCatastral}
-          autoCapitalize="characters"
+          placeholder="Escribe una dirección (Ej: Gran Vía 1, Madrid)"
+          value={query}
+          onChangeText={handleSearch}
         />
-        <Button 
-          title={loading ? "Buscando..." : "Buscar Parcela"} 
-          onPress={searchByRefCatastral} 
-          disabled={loading}
-        />
+        {loading && <Text style={styles.loadingText}>Buscando en el Catastro...</Text>}
+        
+        {suggestions.length > 0 && (
+          <FlatList
+            data={suggestions}
+            keyExtractor={(item) => item.place_id.toString()}
+            style={styles.suggestionsList}
+            renderItem={({ item }) => (
+              <TouchableOpacity style={styles.suggestionItem} onPress={() => onSelectSuggestion(item)}>
+                <Text numberOfLines={2}>{item.display_name}</Text>
+              </TouchableOpacity>
+            )}
+          />
+        )}
       </View>
 
       <MapView 
@@ -102,15 +126,20 @@ export default function App() {
           zIndex={1}
           opacity={0.7}
         />
+        {selectedParcel && (
+          <Marker 
+            coordinate={{ latitude: selectedParcel.lat, longitude: selectedParcel.lon }}
+            title="Referencia Catastral"
+            description={selectedParcel.ref}
+          />
+        )}
       </MapView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   searchBox: {
     position: 'absolute',
     top: 50,
@@ -126,22 +155,28 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
   },
-  title: {
-    fontWeight: 'bold',
-    fontSize: 16,
-    marginBottom: 10,
-  },
+  title: { fontWeight: 'bold', fontSize: 16, marginBottom: 10 },
   input: {
     height: 40,
     borderColor: '#ccc',
     borderWidth: 1,
-    marginBottom: 10,
     paddingHorizontal: 10,
     borderRadius: 5,
+    backgroundColor: '#f9f9f9'
   },
-  map: {
-    width: '100%',
-    height: '100%',
-    zIndex: 1,
+  loadingText: { color: 'blue', marginTop: 5, fontSize: 12 },
+  suggestionsList: {
+    maxHeight: 150,
+    marginTop: 5,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#eee',
+    borderRadius: 5,
   },
+  suggestionItem: {
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  map: { width: '100%', height: '100%', zIndex: 1 },
 });
