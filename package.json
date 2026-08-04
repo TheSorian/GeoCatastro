@@ -1,0 +1,20 @@
+{
+  "name": "catastrogsm",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "expo": "~57.0.9",
+    "expo-status-bar": "~57.0.1",
+    "fast-xml-parser": "^5.10.1",
+    "react": "19.2.3",
+    "react-native": "0.86.2",
+    "react-native-maps": "^1.29.0"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "private": true
+}
