@@ -33,7 +33,7 @@ export default function App() {
   const webViewRef = useRef(null);
   const typingTimer = useRef(null);
 
-  // Mapa Leaflet con Capa Oficial WMS del Catastro
+  // Mapa Leaflet con listener compatible con Android (document + window)
   const leafletHTML = `
     <!DOCTYPE html>
     <html>
@@ -66,24 +66,29 @@ export default function App() {
           transparent: true,
           version: '1.1.1',
           maxZoom: 20,
-          opacity: 0.8
+          opacity: 0.85
         }).addTo(map);
 
         var currentMarker = null;
 
-        window.addEventListener('message', function(event) {
+        function handleRNMessage(event) {
           try {
-            var data = JSON.parse(event.data);
+            var rawData = event.data;
+            var data = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
             if (data.type === 'MOVE_TO') {
-              map.setView([data.lat, data.lon], 18);
+              map.setView([data.lat, data.lon], 19);
               if (currentMarker) map.removeLayer(currentMarker);
               currentMarker = L.marker([data.lat, data.lon]).addTo(map);
-              if (data.ref) {
+              if (data.ref && data.ref !== 'Sin edificio en el centro de la calle') {
                 currentMarker.bindPopup('<b>Ref. Catastral:</b><br>' + data.ref).openPopup();
               }
             }
           } catch(e) {}
-        });
+        }
+
+        // Registrar listener en document y window para máxima compatibilidad Android/iOS
+        window.addEventListener('message', handleRNMessage);
+        document.addEventListener('message', handleRNMessage);
 
         map.on('click', function(e) {
           if (currentMarker) map.removeLayer(currentMarker);
@@ -100,10 +105,12 @@ export default function App() {
     </html>
   `;
 
-  // Abrir Ficha Oficial del Catastro en Chrome Custom Tabs
+  // Abrir Ficha Oficial del Catastro en Chrome Custom Tabs sin el parámetro corruptor `buscar=S`
   const openOfficialFicha = async (refCat) => {
     try {
-      const url = `https://www1.sedecatastro.gob.es/Cartografia/mapa.aspx?buscar=S&refcat=${refCat}`;
+      const cleanRef = refCat.trim();
+      // URL Oficial sin buscar=S para ir directo a la parcela
+      const url = `https://www1.sedecatastro.gob.es/Cartografia/mapa.aspx?refcat=${cleanRef}`;
       await WebBrowser.openBrowserAsync(url, {
         toolbarColor: '#0066cc',
         controlsColor: '#ffffff',
@@ -196,6 +203,14 @@ export default function App() {
   // Clic en Coordenadas del Mapa
   const fetchParcelByCoords = async (lat, lon) => {
     setLoading(true);
+
+    // Mover SIEMPRE el mapa Leaflet de forma inmediata
+    webViewRef.current?.postMessage(JSON.stringify({
+      type: 'MOVE_TO',
+      lat,
+      lon
+    }));
+
     try {
       const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${lon}&Coordenada_Y=${lat}`;
       const response = await fetch(url);
@@ -206,16 +221,14 @@ export default function App() {
 
       const error = jsonObj?.consulta_coordenadas?.control?.cuerr;
       if (error && parseInt(error) > 0) {
-        // Mover el mapa a la coordenada y mostrar aviso de tocar parcela cercana
         setParcelDetails({
           refCat: 'Sin edificio en el centro de la calle',
           lat,
           lon,
-          address: 'Ubicación aproximada. Toca la finca en el mapa para ver sus datos.',
+          address: 'Ubicación alcanzada. Toca cualquier edificio en el mapa para ver sus datos.',
           count: 0,
           noExactBuilding: true
         });
-        webViewRef.current?.postMessage(JSON.stringify({ type: 'MOVE_TO', lat, lon }));
       } else {
         const pc = jsonObj?.consulta_coordenadas?.coordenadas?.coord?.pc;
         if (pc) {
@@ -262,7 +275,6 @@ export default function App() {
 
     typingTimer.current = setTimeout(async () => {
       try {
-        // Usar ArcGIS World Geocoding Service (Datos oficiales de Cartociudad España con portales exactos)
         const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(text)}&countryCode=ESP&maxLocations=6`;
         const response = await fetch(url);
         const data = await response.json();
@@ -369,6 +381,7 @@ export default function App() {
     const lat = parseFloat(item.lat);
     const lon = parseFloat(item.lon);
 
+    // Mover mapa SIEMPRE de forma inmediata
     webViewRef.current?.postMessage(JSON.stringify({
       type: 'MOVE_TO',
       lat,
@@ -385,7 +398,7 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Buscador Superior con ArcGIS Cartociudad */}
+      {/* Buscador Superior */}
       <View style={styles.searchContainer}>
         <Text style={styles.appTitle}>🏛️ Catastro de España</Text>
         <View style={styles.inputRow}>
@@ -479,7 +492,7 @@ export default function App() {
                   style={styles.btnPrimary}
                   onPress={() => openOfficialFicha(parcelDetails.refCat)}
                 >
-                  <Text style={styles.btnPrimaryText}>🌐 Abrir Ficha del Catastro (Chrome Tabs)</Text>
+                  <Text style={styles.btnPrimaryText}>🌐 Abrir Ficha del Catastro (Directa)</Text>
                 </TouchableOpacity>
 
                 {subparcels.length > 0 && (
