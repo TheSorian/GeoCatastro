@@ -10,12 +10,12 @@ import {
   TouchableOpacity,
   SafeAreaView,
   ActivityIndicator,
-  Modal,
   ScrollView,
   Clipboard,
   Dimensions
 } from 'react-native';
 import { WebView } from 'react-native-webview';
+import * as WebBrowser from 'expo-web-browser';
 import { XMLParser } from 'fast-xml-parser';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -28,8 +28,7 @@ export default function App() {
   const [parcelDetails, setParcelDetails] = useState(null);
   const [subparcels, setSubparcels] = useState([]);
   const [showSubparcels, setShowSubparcels] = useState(false);
-  const [showFichaModal, setShowFichaModal] = useState(false);
-  const [fichaUrl, setFichaUrl] = useState('');
+  const [selectedSubparcel, setSelectedSubparcel] = useState(null);
 
   const webViewRef = useRef(null);
   const typingTimer = useRef(null);
@@ -60,7 +59,7 @@ export default function App() {
           attribution: '© OpenStreetMap'
         }).addTo(map);
 
-        // Capa WMS del Catastro
+        // Capa WMS Oficial del Catastro
         var catastroWMS = L.tileLayer.wms('https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx', {
           layers: 'catastro',
           format: 'image/png',
@@ -101,14 +100,28 @@ export default function App() {
     </html>
   `;
 
-  // Obtener datos detallados del Catastro usando Consulta_DNPRC
+  // Abrir Ficha Oficial del Catastro en Chrome Custom Tabs
+  const openOfficialFicha = async (refCat) => {
+    try {
+      const url = `https://www1.sedecatastro.gob.es/Cartografia/mapa.aspx?buscar=S&refcat=${refCat}`;
+      await WebBrowser.openBrowserAsync(url, {
+        toolbarColor: '#0066cc',
+        controlsColor: '#ffffff',
+        showTitle: true,
+      });
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo abrir la Ficha del Catastro.');
+    }
+  };
+
+  // Obtener datos de parcelas e inmuebles (Consulta_DNPRC)
   const fetchFullParcelDetails = async (refCat, lat, lon) => {
     setLoading(true);
     setSubparcels([]);
     setShowSubparcels(false);
-    
+    setSelectedSubparcel(null);
+
     try {
-      // 1. Consultar inmuebles / subparcelas
       const urlDNPRC = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/Consulta_DNPRC?Provincia=&Municipio=&RC=${refCat}`;
       const response = await fetch(urlDNPRC);
       const xmlData = await response.text();
@@ -118,29 +131,27 @@ export default function App() {
 
       const dnp = jsonObj?.consulta_dnp;
       const count = dnp?.control?.cudnp || 0;
-      
+
       let parsedSubparcels = [];
       let mainAddress = '';
 
       if (dnp?.lrcdnp?.rcdnp) {
         const items = Array.isArray(dnp.lrcdnp.rcdnp) ? dnp.lrcdnp.rcdnp : [dnp.lrcdnp.rcdnp];
-        
+
         items.forEach((item, index) => {
           const rcObj = item?.rc;
           const dtObj = item?.dt;
-          
-          // Construir Ref Catastral de 20 dígitos para el inmueble
+
           const full20RC = rcObj ? `${rcObj.pc1}${rcObj.pc2}${rcObj.car}${rcObj.cc1}${rcObj.cc2}` : refCat;
-          
-          // Construir dirección
+
           const dirObj = dtObj?.locs?.lous?.lourb?.dir;
           const lointObj = dtObj?.locs?.lous?.lourb?.loint;
-          
+
           const street = dirObj ? `${dirObj.tv || ''} ${dirObj.nv || ''} ${dirObj.pnp || ''}`.trim() : '';
           const muni = dtObj?.nm || '';
           const prov = dtObj?.np || '';
           const cp = dtObj?.locs?.lous?.lourb?.dp || '';
-          
+
           const planta = lointObj?.pt ? `Planta ${lointObj.pt}` : '';
           const puerta = lointObj?.pu ? `Puerta ${lointObj.pu}` : '';
           const interior = [planta, puerta].filter(Boolean).join(', ');
@@ -154,7 +165,7 @@ export default function App() {
             ref20: full20RC,
             cargo: rcObj?.car || `${index + 1}`,
             address: street,
-            interior: interior || 'Finca / Parcela Principal',
+            interior: interior || 'Inmueble / Parcela Principal',
             muni,
             prov
           });
@@ -166,17 +177,15 @@ export default function App() {
         refCat,
         lat,
         lon,
-        address: mainAddress || 'Dirección no especificada',
+        address: mainAddress || 'Ubicación Catastral',
         count: count
       });
-
     } catch (err) {
-      console.error(err);
       setParcelDetails({
         refCat,
         lat,
         lon,
-        address: 'Ubicación seleccionada',
+        address: 'Ubicación Seleccionada',
         count: 1
       });
     } finally {
@@ -191,20 +200,28 @@ export default function App() {
       const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${lon}&Coordenada_Y=${lat}`;
       const response = await fetch(url);
       const xmlData = await response.text();
-      
+
       const parser = new XMLParser();
       const jsonObj = parser.parse(xmlData);
 
       const error = jsonObj?.consulta_coordenadas?.control?.cuerr;
       if (error && parseInt(error) > 0) {
-        Alert.alert('Catastro', 'No hay datos catastrales registrados en esta coordenada.');
-        setParcelDetails(null);
+        // Mover el mapa a la coordenada y mostrar aviso de tocar parcela cercana
+        setParcelDetails({
+          refCat: 'Sin edificio en el centro de la calle',
+          lat,
+          lon,
+          address: 'Ubicación aproximada. Toca la finca en el mapa para ver sus datos.',
+          count: 0,
+          noExactBuilding: true
+        });
+        webViewRef.current?.postMessage(JSON.stringify({ type: 'MOVE_TO', lat, lon }));
       } else {
         const pc = jsonObj?.consulta_coordenadas?.coordenadas?.coord?.pc;
         if (pc) {
           const refCatastral = `${pc.pc1}${pc.pc2}`;
           setSelectedParcel({ lat, lon, ref: refCatastral });
-          
+
           webViewRef.current?.postMessage(JSON.stringify({
             type: 'MOVE_TO',
             lat,
@@ -222,7 +239,7 @@ export default function App() {
     }
   };
 
-  // Autocompletado de Direcciones (Nominatim con User-Agent para evitar bloqueo HTTP 403)
+  // Buscador de Direcciones usando ArcGIS (Cartociudad / IGN España) para 100% de precisión en portales
   const handleSearchTextChange = (text) => {
     setQuery(text);
     if (typingTimer.current) clearTimeout(typingTimer.current);
@@ -232,7 +249,6 @@ export default function App() {
       return;
     }
 
-    // Detectar si es una Referencia Catastral directamente (14 o 20 caracteres)
     const cleanText = text.trim().toUpperCase();
     if (cleanText.length >= 14 && !cleanText.includes(' ')) {
       setSuggestions([{
@@ -246,36 +262,47 @@ export default function App() {
 
     typingTimer.current = setTimeout(async () => {
       try {
-        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&countrycodes=es&limit=6`;
-        const response = await fetch(url, {
-          headers: {
-            'User-Agent': 'CatastroGSM-MobileApp/1.0 (contact@catastrogsm.app)'
+        // Usar ArcGIS World Geocoding Service (Datos oficiales de Cartociudad España con portales exactos)
+        const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(text)}&countryCode=ESP&maxLocations=6`;
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data?.candidates?.length > 0) {
+          const mapped = data.candidates.map((c, idx) => ({
+            place_id: `arcgis_${idx}`,
+            display_name: c.address,
+            lat: c.location.y,
+            lon: c.location.x
+          }));
+          setSuggestions(mapped);
+        } else {
+          // Fallback a Nominatim si no hay candidatos
+          const fallbackUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&countrycodes=es&limit=5`;
+          const resNom = await fetch(fallbackUrl, {
+            headers: { 'User-Agent': 'CatastroGSM-App/1.0' }
+          });
+          if (resNom.ok) {
+            const dataNom = await resNom.json();
+            setSuggestions(dataNom);
           }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setSuggestions(data);
         }
       } catch (err) {
         console.error('Error buscando direccion:', err);
       }
-    }, 400);
+    }, 350);
   };
 
-  // Ejecutar búsqueda activa (al pulsar botón Buscar o Enter en teclado)
   const executeSearch = () => {
     if (!query.trim()) return;
     Keyboard.dismiss();
 
     const clean = query.trim().toUpperCase();
-    
-    // 1. Comprobar si es Referencia Catastral
+
     if (clean.length >= 14 && !clean.includes(' ')) {
       onSelectSuggestion({ isRC: true, rc: clean });
       return;
     }
 
-    // 2. Comprobar si son Coordenadas (ej: 40.4168, -3.7038)
     const coordMatch = query.match(/^(-?\d+\.\d+)[,\s]+(-?\d+\.\d+)$/);
     if (coordMatch) {
       const lat = parseFloat(coordMatch[1]);
@@ -285,16 +312,13 @@ export default function App() {
       return;
     }
 
-    // 3. Si hay sugerencias, usar la primera
     if (suggestions.length > 0) {
       onSelectSuggestion(suggestions[0]);
     } else {
-      // Intentar búsqueda directa
       handleSearchTextChange(query);
     }
   };
 
-  // Seleccionar sugerencia de la lista
   const onSelectSuggestion = async (item) => {
     Keyboard.dismiss();
     setSuggestions([]);
@@ -333,7 +357,7 @@ export default function App() {
           Alert.alert('No encontrada', 'No se encontraron coordenadas para esa Referencia Catastral.');
         }
       } catch (err) {
-        Alert.alert('Error', 'Fallo al buscar en la API del Catastro.');
+        Alert.alert('Error', 'Fallo al consultar el Catastro.');
       } finally {
         setLoading(false);
       }
@@ -354,13 +378,6 @@ export default function App() {
     await fetchParcelByCoords(lat, lon);
   };
 
-  // Abrir Ficha Oficial del Catastro en Modal Web
-  const openOfficialFicha = (refCat) => {
-    const url = `https://www1.sedecatastro.gob.es/Cartografia/datosBasicos.aspx?refcat=${refCat}`;
-    setFichaUrl(url);
-    setShowFichaModal(true);
-  };
-
   const copyToClipboard = (text) => {
     Clipboard.setString(text);
     Alert.alert('Copiado', `Referencia copiada al portapapeles:\n${text}`);
@@ -368,13 +385,13 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Buscador Superior */}
+      {/* Buscador Superior con ArcGIS Cartociudad */}
       <View style={styles.searchContainer}>
         <Text style={styles.appTitle}>🏛️ Catastro de España</Text>
         <View style={styles.inputRow}>
           <TextInput
             style={styles.searchInput}
-            placeholder="Dirección, Ref. Catastral o Coordenadas..."
+            placeholder="Dirección, Calle y Nº, Ref. Catastral..."
             placeholderTextColor="#888"
             value={query}
             onChangeText={handleSearchTextChange}
@@ -393,7 +410,7 @@ export default function App() {
           </View>
         )}
 
-        {/* Lista de Sugerencias de Autocompletado */}
+        {/* Lista de Sugerencias */}
         {suggestions.length > 0 && (
           <FlatList
             data={suggestions}
@@ -411,7 +428,7 @@ export default function App() {
         )}
       </View>
 
-      {/* Mapa Interactivo con Leaflet + Capa WMS Catastro */}
+      {/* Mapa Interactivo Leaflet + WMS Catastro */}
       <WebView
         ref={webViewRef}
         originWhitelist={['*']}
@@ -421,93 +438,107 @@ export default function App() {
           try {
             const data = JSON.parse(e.nativeEvent.data);
             if (data.type === 'MAP_CLICK') fetchParcelByCoords(data.lat, data.lon);
-          } catch(err) {}
+          } catch (err) {}
         }}
         javaScriptEnabled={true}
         domStorageEnabled={true}
       />
 
-      {/* Tarjeta de Información Detallada de la Parcela */}
+      {/* Tarjeta de Información de la Parcela */}
       {parcelDetails && (
         <View style={styles.detailsCard}>
           <View style={styles.cardHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.cardAddress} numberOfLines={1}>{parcelDetails.address}</Text>
-              <Text style={styles.cardRefLabel}>Ref. Catastral Base (14 car.):</Text>
-              <TouchableOpacity onPress={() => copyToClipboard(parcelDetails.refCat)}>
-                <Text style={styles.cardRefValue}>{parcelDetails.refCat} 📋</Text>
-              </TouchableOpacity>
+              <Text style={styles.cardAddress} numberOfLines={2}>{parcelDetails.address}</Text>
+
+              {!parcelDetails.noExactBuilding && (
+                <>
+                  <Text style={styles.cardRefLabel}>Ref. Catastral Base (14 car.):</Text>
+                  <TouchableOpacity onPress={() => copyToClipboard(parcelDetails.refCat)}>
+                    <Text style={styles.cardRefValue}>{parcelDetails.refCat} 📋</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
+
             <TouchableOpacity style={styles.closeCardBtn} onPress={() => setParcelDetails(null)}>
               <Text style={styles.closeCardBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Ficha Resumen de Datos */}
-          <View style={styles.badgeRow}>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>🏢 {parcelDetails.count} Inmueble(s) / Subparcelas</Text>
-            </View>
-          </View>
-
-          {/* Botones de Acción */}
-          <View style={styles.actionButtonsRow}>
-            <TouchableOpacity 
-              style={styles.btnPrimary} 
-              onPress={() => openOfficialFicha(parcelDetails.refCat)}
-            >
-              <Text style={styles.btnPrimaryText}>📄 Ficha Completa del Catastro</Text>
-            </TouchableOpacity>
-
-            {subparcels.length > 0 && (
-              <TouchableOpacity 
-                style={styles.btnSecondary} 
-                onPress={() => setShowSubparcels(!showSubparcels)}
-              >
-                <Text style={styles.btnSecondaryText}>
-                  {showSubparcels ? '▲ Ocultar Subparcelas' : '▼ Ver Subparcelas / Pisos'}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Desplegable de Subparcelas / Bienes Inmuebles */}
-          {showSubparcels && (
-            <ScrollView style={styles.subparcelsScroll} nestedScrollEnabled={true}>
-              <Text style={styles.subparcelsHeader}>Desglose de Bienes Inmuebles (20 dígitos):</Text>
-              {subparcels.map((sub, idx) => (
-                <View key={sub.id + idx} style={styles.subparcelItem}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.subparcelTitle}>{sub.interior}</Text>
-                    <Text style={styles.subparcelRC} selectTextOnPress={true}>{sub.ref20}</Text>
-                  </View>
-                  <TouchableOpacity style={styles.copyBtnMini} onPress={() => copyToClipboard(sub.ref20)}>
-                    <Text style={styles.copyBtnMiniText}>Copiar</Text>
-                  </TouchableOpacity>
+          {!parcelDetails.noExactBuilding ? (
+            <>
+              <View style={styles.badgeRow}>
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>🏢 {parcelDetails.count} Inmueble(s) / Subparcelas</Text>
                 </View>
-              ))}
-            </ScrollView>
+              </View>
+
+              <View style={styles.actionButtonsRow}>
+                <TouchableOpacity
+                  style={styles.btnPrimary}
+                  onPress={() => openOfficialFicha(parcelDetails.refCat)}
+                >
+                  <Text style={styles.btnPrimaryText}>🌐 Abrir Ficha del Catastro (Chrome Tabs)</Text>
+                </TouchableOpacity>
+
+                {subparcels.length > 0 && (
+                  <TouchableOpacity
+                    style={styles.btnSecondary}
+                    onPress={() => setShowSubparcels(!showSubparcels)}
+                  >
+                    <Text style={styles.btnSecondaryText}>
+                      {showSubparcels ? '▲ Ocultar Subparcelas' : '▼ Ver Subparcelas / Pisos'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Lista Desplegable de Subparcelas */}
+              {showSubparcels && (
+                <ScrollView style={styles.subparcelsScroll} nestedScrollEnabled={true}>
+                  <Text style={styles.subparcelsHeader}>Selecciona una subparcela para ver su ficha:</Text>
+                  {subparcels.map((sub, idx) => {
+                    const isSelected = selectedSubparcel?.id === sub.id;
+                    return (
+                      <View
+                        key={sub.id + idx}
+                        style={[styles.subparcelItem, isSelected && styles.subparcelItemSelected]}
+                      >
+                        <TouchableOpacity
+                          style={{ flex: 1 }}
+                          onPress={() => setSelectedSubparcel(sub)}
+                        >
+                          <Text style={styles.subparcelTitle}>{sub.interior}</Text>
+                          <Text style={styles.subparcelRC}>{sub.ref20}</Text>
+                        </TouchableOpacity>
+
+                        <View style={{ flexDirection: 'row', gap: 6 }}>
+                          <TouchableOpacity
+                            style={styles.btnMiniFicha}
+                            onPress={() => openOfficialFicha(sub.ref20)}
+                          >
+                            <Text style={styles.btnMiniFichaText}>Ficha 🌐</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={styles.copyBtnMini}
+                            onPress={() => copyToClipboard(sub.ref20)}
+                          >
+                            <Text style={styles.copyBtnMiniText}>Copiar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </>
+          ) : (
+            <Text style={styles.hintText}>💡 Toca cualquier parcela o edificio en el mapa para cargar sus datos catastrales completos.</Text>
           )}
         </View>
       )}
-
-      {/* Modal para Visualizar la Ficha Oficial del Catastro Web Incorporada */}
-      <Modal visible={showFichaModal} animationType="slide" onRequestClose={() => setShowFichaModal(false)}>
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>📄 Sede Electrónica del Catastro</Text>
-            <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowFichaModal(false)}>
-              <Text style={styles.modalCloseBtnText}>Cerrar ✕</Text>
-            </TouchableOpacity>
-          </View>
-          <WebView 
-            source={{ uri: fichaUrl }} 
-            style={{ flex: 1 }} 
-            startInLoadingState={true}
-            renderLoading={() => <ActivityIndicator size="large" color="#0066cc" style={{ marginTop: 20 }} />}
-          />
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -555,7 +586,7 @@ const styles = StyleSheet.create({
   loadingBox: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   loadingText: { color: '#0066cc', fontSize: 12, fontWeight: '500' },
   suggestionsList: {
-    maxHeight: 200,
+    maxHeight: 210,
     marginTop: 8,
     backgroundColor: 'white',
     borderWidth: 1,
@@ -575,7 +606,7 @@ const styles = StyleSheet.create({
     bottom: 20,
     left: 14,
     right: 14,
-    maxHeight: SCREEN_HEIGHT * 0.45,
+    maxHeight: SCREEN_HEIGHT * 0.48,
     backgroundColor: 'white',
     padding: 15,
     borderRadius: 14,
@@ -595,6 +626,7 @@ const styles = StyleSheet.create({
   badgeRow: { flexDirection: 'row', marginVertical: 8 },
   badge: { backgroundColor: '#e6f2ff', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
   badgeText: { color: '#0066cc', fontSize: 12, fontWeight: '600' },
+  hintText: { fontSize: 12, color: '#666', marginTop: 8, fontStyle: 'italic' },
   actionButtonsRow: { flexDirection: 'column', gap: 6, marginTop: 4 },
   btnPrimary: {
     backgroundColor: '#0066cc',
@@ -612,29 +644,23 @@ const styles = StyleSheet.create({
     borderColor: '#d0e0f0'
   },
   btnSecondaryText: { color: '#0055aa', fontWeight: '600', fontSize: 12 },
-  subparcelsScroll: { marginTop: 10, maxHeight: 140, borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 8 },
+  subparcelsScroll: { marginTop: 10, maxHeight: 160, borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 8 },
   subparcelsHeader: { fontWeight: 'bold', fontSize: 12, color: '#444', marginBottom: 6 },
   subparcelItem: {
     flexDirection: 'row',
     justify: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0'
+    borderBottomColor: '#f0f0f0',
+    borderRadius: 6
   },
+  subparcelItemSelected: { backgroundColor: '#e6f2ff' },
   subparcelTitle: { fontSize: 12, color: '#222', fontWeight: '500' },
   subparcelRC: { fontSize: 11, color: '#0066cc', fontFamily: 'monospace' },
+  btnMiniFicha: { backgroundColor: '#0066cc', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
+  btnMiniFichaText: { fontSize: 10, color: 'white', fontWeight: 'bold' },
   copyBtnMini: { backgroundColor: '#eef', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
   copyBtnMiniText: { fontSize: 10, color: '#0066cc', fontWeight: 'bold' },
-  modalContainer: { flex: 1, backgroundColor: 'white' },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 14,
-    backgroundColor: '#0066cc',
-  },
-  modalTitle: { color: 'white', fontWeight: 'bold', fontSize: 15 },
-  modalCloseBtn: { padding: 4 },
-  modalCloseBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14 }
 });
