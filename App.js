@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -17,12 +17,16 @@ import {
 import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
 import { XMLParser } from 'fast-xml-parser';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const STORAGE_KEY = '@catastro_recent_searches_v1';
 
 export default function App() {
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
+  const [recentSearches, setRecentSearches] = useState([]);
+  const [showRecent, setShowRecent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selectedParcel, setSelectedParcel] = useState(null);
   const [parcelDetails, setParcelDetails] = useState(null);
@@ -33,7 +37,49 @@ export default function App() {
   const webViewRef = useRef(null);
   const typingTimer = useRef(null);
 
-  // Mapa Leaflet con listener compatible con Android (document + window)
+  // Cargar búsquedas recientes al iniciar
+  useEffect(() => {
+    loadRecentSearches();
+  }, []);
+
+  const loadRecentSearches = async () => {
+    try {
+      const data = await AsyncStorage.getItem(STORAGE_KEY);
+      if (data) {
+        setRecentSearches(JSON.parse(data));
+      }
+    } catch (e) {}
+  };
+
+  const saveRecentSearch = async (text) => {
+    if (!text || text.trim().length < 3) return;
+    const clean = text.trim();
+    try {
+      let current = [...recentSearches];
+      current = current.filter(item => item.toLowerCase() !== clean.toLowerCase());
+      current.unshift(clean);
+      if (current.length > 8) current = current.slice(0, 8);
+      setRecentSearches(current);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+    } catch (e) {}
+  };
+
+  const removeRecentSearch = async (textToRemove) => {
+    try {
+      const current = recentSearches.filter(item => item !== textToRemove);
+      setRecentSearches(current);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+    } catch (e) {}
+  };
+
+  const clearAllRecent = async () => {
+    try {
+      setRecentSearches([]);
+      await AsyncStorage.removeItem(STORAGE_KEY);
+    } catch (e) {}
+  };
+
+  // HTML del visor Leaflet con listener compatible Android/iOS
   const leafletHTML = `
     <!DOCTYPE html>
     <html>
@@ -53,13 +99,11 @@ export default function App() {
         var map = L.map('map', { zoomControl: false }).setView([40.4168, -3.7038], 16);
         L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-        // Capa Base OpenStreetMap
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
           attribution: '© OpenStreetMap'
         }).addTo(map);
 
-        // Capa WMS Oficial del Catastro
         var catastroWMS = L.tileLayer.wms('https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx', {
           layers: 'catastro',
           format: 'image/png',
@@ -86,7 +130,6 @@ export default function App() {
           } catch(e) {}
         }
 
-        // Registrar listener en document y window para máxima compatibilidad Android/iOS
         window.addEventListener('message', handleRNMessage);
         document.addEventListener('message', handleRNMessage);
 
@@ -105,12 +148,22 @@ export default function App() {
     </html>
   `;
 
-  // Abrir Ficha Oficial del Catastro en Chrome Custom Tabs sin el parámetro corruptor `buscar=S`
-  const openOfficialFicha = async (refCat) => {
+  // Abrir Ficha Oficial del Catastro en Chrome Custom Tabs
+  const openOfficialFicha = async (refCat, delCode, munCode) => {
     try {
       const cleanRef = refCat.trim();
-      // URL Oficial sin buscar=S para ir directo a la parcela
-      const url = `https://www1.sedecatastro.gob.es/Cartografia/mapa.aspx?refcat=${cleanRef}`;
+      let url = '';
+
+      if (cleanRef.length === 20 || (delCode && munCode && cleanRef.length >= 14)) {
+        // Ficha Informativa Oficial Descriptiva (Piso/Inmueble Concreto o Chalet)
+        const del = delCode || '28';
+        const mun = munCode || '900';
+        url = `https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCConCiud.aspx?del=${del}&mun=${mun}&UrbRus=U&RefC=${cleanRef}&Apenom=&esBice=&RCBice1=&RCBice2=&DenoBice=&from=nuevoVisor&ZV=NO&anyoZV=`;
+      } else {
+        // Parcela Base (14 dígitos)
+        url = `https://www1.sedecatastro.gob.es/Cartografia/mapa.aspx?refcat=${cleanRef}`;
+      }
+
       await WebBrowser.openBrowserAsync(url, {
         toolbarColor: '#0066cc',
         controlsColor: '#ffffff',
@@ -121,7 +174,7 @@ export default function App() {
     }
   };
 
-  // Obtener datos de parcelas e inmuebles (Consulta_DNPRC)
+  // Obtener datos de parcelas e inmuebles (Consulta_DNPRC) con soporte a chalets (<bico>)
   const fetchFullParcelDetails = async (refCat, lat, lon) => {
     setLoading(true);
     setSubparcels([]);
@@ -137,17 +190,26 @@ export default function App() {
       const jsonObj = parser.parse(xmlData);
 
       const dnp = jsonObj?.consulta_dnp;
-      const count = dnp?.control?.cudnp || 0;
 
       let parsedSubparcels = [];
       let mainAddress = '';
+      let delCode = '';
+      let munCode = '';
+      let totalCount = 0;
 
+      // 1. Caso Edificio con varios inmuebles / división horizontal (<lrcdnp>)
       if (dnp?.lrcdnp?.rcdnp) {
         const items = Array.isArray(dnp.lrcdnp.rcdnp) ? dnp.lrcdnp.rcdnp : [dnp.lrcdnp.rcdnp];
+        totalCount = dnp?.control?.cudnp || items.length;
 
         items.forEach((item, index) => {
           const rcObj = item?.rc;
           const dtObj = item?.dt;
+
+          if (index === 0 && dtObj) {
+            delCode = dtObj?.loine?.cp ? String(dtObj.loine.cp) : '';
+            munCode = dtObj?.cmc ? String(dtObj.cmc) : '';
+          }
 
           const full20RC = rcObj ? `${rcObj.pc1}${rcObj.pc2}${rcObj.car}${rcObj.cc1}${rcObj.cc2}` : refCat;
 
@@ -174,22 +236,59 @@ export default function App() {
             address: street,
             interior: interior || 'Inmueble / Parcela Principal',
             muni,
-            prov
+            prov,
+            del: delCode,
+            mun: munCode
           });
+        });
+      } 
+      // 2. Caso Finca de 1 solo inmueble / Chalet / Nave (<bico>)
+      else if (dnp?.bico?.bi) {
+        const bi = dnp.bico.bi;
+        const rcObj = bi?.idbi?.rc;
+        const dtObj = bi?.dt;
+
+        delCode = dtObj?.loine?.cp ? String(dtObj.loine.cp) : '';
+        munCode = dtObj?.cmc ? String(dtObj.cmc) : '';
+        totalCount = 1;
+
+        const full20RC = rcObj ? `${rcObj.pc1}${rcObj.pc2}${rcObj.car}${rcObj.cc1}${rcObj.cc2}` : refCat;
+        const dirObj = dtObj?.locs?.lous?.lourb?.dir;
+        const street = dirObj ? `${dirObj.tv || ''} ${dirObj.nv || ''} ${dirObj.pnp || ''}`.trim() : '';
+        const muni = dtObj?.nm || '';
+        const prov = dtObj?.np || '';
+        const cp = dtObj?.locs?.lous?.lourb?.dp || '';
+
+        mainAddress = bi?.ldt || `${street}, ${muni} (${prov}) ${cp}`.trim();
+
+        parsedSubparcels.push({
+          id: full20RC,
+          ref20: full20RC,
+          cargo: rcObj?.car || '0001',
+          address: street,
+          interior: 'Inmueble Único (Finca / Chalet)',
+          muni,
+          prov,
+          del: delCode,
+          mun: munCode
         });
       }
 
       setSubparcels(parsedSubparcels);
       setParcelDetails({
         refCat,
+        ref20: parsedSubparcels[0]?.ref20 || refCat,
         lat,
         lon,
         address: mainAddress || 'Ubicación Catastral',
-        count: count
+        count: totalCount,
+        del: delCode,
+        mun: munCode
       });
     } catch (err) {
       setParcelDetails({
         refCat,
+        ref20: refCat,
         lat,
         lon,
         address: 'Ubicación Seleccionada',
@@ -200,11 +299,10 @@ export default function App() {
     }
   };
 
-  // Clic en Coordenadas del Mapa
+  // Clic en Coordenadas del Mapa con Sondeo Espacial de Radio
   const fetchParcelByCoords = async (lat, lon) => {
     setLoading(true);
 
-    // Mover SIEMPRE el mapa Leaflet de forma inmediata
     webViewRef.current?.postMessage(JSON.stringify({
       type: 'MOVE_TO',
       lat,
@@ -212,38 +310,58 @@ export default function App() {
     }));
 
     try {
-      const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${lon}&Coordenada_Y=${lat}`;
-      const response = await fetch(url);
-      const xmlData = await response.text();
+      // 1. Consulta directa al centro
+      let url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${lon}&Coordenada_Y=${lat}`;
+      let response = await fetch(url);
+      let xmlData = await response.text();
+      let parser = new XMLParser();
+      let jsonObj = parser.parse(xmlData);
 
-      const parser = new XMLParser();
-      const jsonObj = parser.parse(xmlData);
+      let pc = jsonObj?.consulta_coordenadas?.coordenadas?.coord?.pc;
 
-      const error = jsonObj?.consulta_coordenadas?.control?.cuerr;
-      if (error && parseInt(error) > 0) {
+      // 2. Si cayó en el asfalto (cuerr > 0), probe espacial de 10m en 4 direcciones
+      if (!pc) {
+        const offsets = [
+          [0.00008, 0.00008],
+          [-0.00008, -0.00008],
+          [0.00008, -0.00008],
+          [-0.00008, 0.00008]
+        ];
+        for (const [dx, dy] of offsets) {
+          const pUrl = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${lon + dx}&Coordenada_Y=${lat + dy}`;
+          const pRes = await fetch(pUrl);
+          const pXml = await pRes.text();
+          const pJson = parser.parse(pXml);
+          const pPc = pJson?.consulta_coordenadas?.coordenadas?.coord?.pc;
+          if (pPc) {
+            pc = pPc;
+            break;
+          }
+        }
+      }
+
+      if (pc) {
+        const refCatastral = `${pc.pc1}${pc.pc2}`;
+        setSelectedParcel({ lat, lon, ref: refCatastral });
+
+        webViewRef.current?.postMessage(JSON.stringify({
+          type: 'MOVE_TO',
+          lat,
+          lon,
+          ref: refCatastral
+        }));
+
+        await fetchFullParcelDetails(refCatastral, lat, lon);
+      } else {
         setParcelDetails({
-          refCat: 'Sin edificio en el centro de la calle',
+          refCat: 'Sin edificio en el punto exacto',
+          ref20: '',
           lat,
           lon,
           address: 'Ubicación alcanzada. Toca cualquier edificio en el mapa para ver sus datos.',
           count: 0,
           noExactBuilding: true
         });
-      } else {
-        const pc = jsonObj?.consulta_coordenadas?.coordenadas?.coord?.pc;
-        if (pc) {
-          const refCatastral = `${pc.pc1}${pc.pc2}`;
-          setSelectedParcel({ lat, lon, ref: refCatastral });
-
-          webViewRef.current?.postMessage(JSON.stringify({
-            type: 'MOVE_TO',
-            lat,
-            lon,
-            ref: refCatastral
-          }));
-
-          await fetchFullParcelDetails(refCatastral, lat, lon);
-        }
       }
     } catch (err) {
       Alert.alert('Error', 'No se pudo conectar con el Catastro.');
@@ -252,9 +370,10 @@ export default function App() {
     }
   };
 
-  // Buscador de Direcciones usando ArcGIS (Cartociudad / IGN España) para 100% de precisión en portales
+  // Buscador de Direcciones usando ArcGIS Cartociudad con outFields=* (extrae Pedanía / District)
   const handleSearchTextChange = (text) => {
     setQuery(text);
+    setShowRecent(false);
     if (typingTimer.current) clearTimeout(typingTimer.current);
 
     if (text.length < 3) {
@@ -275,20 +394,40 @@ export default function App() {
 
     typingTimer.current = setTimeout(async () => {
       try {
-        const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(text)}&countryCode=ESP&maxLocations=6`;
+        const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(text)}&countryCode=ESP&maxLocations=6&outFields=*`;
         const response = await fetch(url);
         const data = await response.json();
 
         if (data?.candidates?.length > 0) {
-          const mapped = data.candidates.map((c, idx) => ({
-            place_id: `arcgis_${idx}`,
-            display_name: c.address,
-            lat: c.location.y,
-            lon: c.location.x
-          }));
+          const mapped = data.candidates.map((c, idx) => {
+            const attrs = c.attributes || {};
+            const district = attrs.District || attrs.Neighborhood || '';
+            const city = attrs.City || attrs.Subregion || '';
+            const postal = attrs.Postal || '';
+
+            // Formatear dirección con Pedanía / Núcleo Urbano bien visible
+            let formattedTitle = c.address;
+            if (district && !c.address.toLowerCase().includes(district.toLowerCase())) {
+              const parts = c.address.split(',');
+              if (parts.length >= 2) {
+                formattedTitle = `${parts[0].trim()}, ${district} (${parts.slice(1).join(',').trim()})`;
+              } else {
+                formattedTitle = `${c.address}, ${district}`;
+              }
+            }
+
+            return {
+              place_id: `arcgis_${idx}`,
+              display_name: formattedTitle,
+              lat: c.location.y,
+              lon: c.location.x,
+              district,
+              city
+            };
+          });
           setSuggestions(mapped);
         } else {
-          // Fallback a Nominatim si no hay candidatos
+          // Fallback a Nominatim si no hay resultados
           const fallbackUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&countrycodes=es&limit=5`;
           const resNom = await fetch(fallbackUrl, {
             headers: { 'User-Agent': 'CatastroGSM-App/1.0' }
@@ -299,7 +438,7 @@ export default function App() {
           }
         }
       } catch (err) {
-        console.error('Error buscando direccion:', err);
+        console.error('Error buscando dirección:', err);
       }
     }, 350);
   };
@@ -307,6 +446,9 @@ export default function App() {
   const executeSearch = () => {
     if (!query.trim()) return;
     Keyboard.dismiss();
+    setShowRecent(false);
+
+    saveRecentSearch(query);
 
     const clean = query.trim().toUpperCase();
 
@@ -334,9 +476,11 @@ export default function App() {
   const onSelectSuggestion = async (item) => {
     Keyboard.dismiss();
     setSuggestions([]);
+    setShowRecent(false);
 
     if (item.isRC) {
       setQuery(item.rc);
+      saveRecentSearch(item.rc);
       setLoading(true);
       try {
         const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:4326&RefCat=${item.rc}`;
@@ -378,10 +522,11 @@ export default function App() {
 
     // Dirección normal
     setQuery(item.display_name);
+    saveRecentSearch(item.display_name);
+
     const lat = parseFloat(item.lat);
     const lon = parseFloat(item.lon);
 
-    // Mover mapa SIEMPRE de forma inmediata
     webViewRef.current?.postMessage(JSON.stringify({
       type: 'MOVE_TO',
       lat,
@@ -391,6 +536,12 @@ export default function App() {
     await fetchParcelByCoords(lat, lon);
   };
 
+  const clearInputText = () => {
+    setQuery('');
+    setSuggestions([]);
+    setShowRecent(recentSearches.length > 0);
+  };
+
   const copyToClipboard = (text) => {
     Clipboard.setString(text);
     Alert.alert('Copiado', `Referencia copiada al portapapeles:\n${text}`);
@@ -398,19 +549,33 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Buscador Superior */}
+      {/* Buscador Superior con Historial y Botón X */}
       <View style={styles.searchContainer}>
         <Text style={styles.appTitle}>🏛️ Catastro de España</Text>
+        
         <View style={styles.inputRow}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Dirección, Calle y Nº, Ref. Catastral..."
-            placeholderTextColor="#888"
-            value={query}
-            onChangeText={handleSearchTextChange}
-            onSubmitEditing={executeSearch}
-            returnKeyType="search"
-          />
+          <View style={styles.inputBoxContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Dirección, Calle y Nº, Ref. Catastral..."
+              placeholderTextColor="#888"
+              value={query}
+              onChangeText={handleSearchTextChange}
+              onFocus={() => {
+                if (query.trim().length === 0 && recentSearches.length > 0) {
+                  setShowRecent(true);
+                }
+              }}
+              onSubmitEditing={executeSearch}
+              returnKeyType="search"
+            />
+            {query.length > 0 && (
+              <TouchableOpacity style={styles.clearIconBtn} onPress={clearInputText}>
+                <Text style={styles.clearIconText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
           <TouchableOpacity style={styles.searchButton} onPress={executeSearch}>
             <Text style={styles.searchButtonText}>Buscar</Text>
           </TouchableOpacity>
@@ -423,7 +588,41 @@ export default function App() {
           </View>
         )}
 
-        {/* Lista de Sugerencias */}
+        {/* Lista de Búsquedas Recientes */}
+        {showRecent && recentSearches.length > 0 && (
+          <View style={styles.recentContainer}>
+            <View style={styles.recentHeaderRow}>
+              <Text style={styles.recentHeaderText}>🕒 Búsquedas Recientes</Text>
+              <TouchableOpacity onPress={clearAllRecent}>
+                <Text style={styles.recentClearAllText}>Borrar historial</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.recentScroll} keyboardShouldPersistTaps="handled">
+              {recentSearches.map((item, idx) => (
+                <View key={idx} style={styles.recentRowItem}>
+                  <TouchableOpacity
+                    style={{ flex: 1 }}
+                    onPress={() => {
+                      setQuery(item);
+                      setShowRecent(false);
+                      handleSearchTextChange(item);
+                    }}
+                  >
+                    <Text style={styles.recentItemText} numberOfLines={1}>🕒 {item}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ paddingLeft: 8 }}
+                    onPress={() => removeRecentSearch(item)}
+                  >
+                    <Text style={styles.recentDeleteBtn}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* Lista de Sugerencias de Autocompletado */}
         {suggestions.length > 0 && (
           <FlatList
             data={suggestions}
@@ -457,7 +656,7 @@ export default function App() {
         domStorageEnabled={true}
       />
 
-      {/* Tarjeta de Información de la Parcela */}
+      {/* Tarjeta de Información de la Parcela e Inmuebles */}
       {parcelDetails && (
         <View style={styles.detailsCard}>
           <View style={styles.cardHeader}>
@@ -490,27 +689,27 @@ export default function App() {
               <View style={styles.actionButtonsRow}>
                 <TouchableOpacity
                   style={styles.btnPrimary}
-                  onPress={() => openOfficialFicha(parcelDetails.refCat)}
+                  onPress={() => openOfficialFicha(parcelDetails.ref20 || parcelDetails.refCat, parcelDetails.del, parcelDetails.mun)}
                 >
-                  <Text style={styles.btnPrimaryText}>🌐 Abrir Ficha del Catastro (Directa)</Text>
+                  <Text style={styles.btnPrimaryText}>📄 Abrir Ficha Oficial del Inmueble</Text>
                 </TouchableOpacity>
 
-                {subparcels.length > 0 && (
+                {subparcels.length > 1 && (
                   <TouchableOpacity
                     style={styles.btnSecondary}
                     onPress={() => setShowSubparcels(!showSubparcels)}
                   >
                     <Text style={styles.btnSecondaryText}>
-                      {showSubparcels ? '▲ Ocultar Subparcelas' : '▼ Ver Subparcelas / Pisos'}
+                      {showSubparcels ? '▲ Ocultar Pisos / Locales' : '▼ Ver Lista de Pisos / Locales'}
                     </Text>
                   </TouchableOpacity>
                 )}
               </View>
 
-              {/* Lista Desplegable de Subparcelas */}
-              {showSubparcels && (
+              {/* Lista Desplegable de Subparcelas / Pisos de 20 dígitos */}
+              {showSubparcels && subparcels.length > 1 && (
                 <ScrollView style={styles.subparcelsScroll} nestedScrollEnabled={true}>
-                  <Text style={styles.subparcelsHeader}>Selecciona una subparcela para ver su ficha:</Text>
+                  <Text style={styles.subparcelsHeader}>Selecciona un piso para abrir su Ficha Oficial:</Text>
                   {subparcels.map((sub, idx) => {
                     const isSelected = selectedSubparcel?.id === sub.id;
                     return (
@@ -529,7 +728,7 @@ export default function App() {
                         <View style={{ flexDirection: 'row', gap: 6 }}>
                           <TouchableOpacity
                             style={styles.btnMiniFicha}
-                            onPress={() => openOfficialFicha(sub.ref20)}
+                            onPress={() => openOfficialFicha(sub.ref20, sub.del, sub.mun)}
                           >
                             <Text style={styles.btnMiniFichaText}>Ficha 🌐</Text>
                           </TouchableOpacity>
@@ -575,17 +774,21 @@ const styles = StyleSheet.create({
   },
   appTitle: { fontWeight: 'bold', fontSize: 15, marginBottom: 8, color: '#111' },
   inputRow: { flexDirection: 'row', alignItems: 'center' },
+  inputBoxContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', position: 'relative' },
   searchInput: {
     flex: 1,
     height: 42,
     borderColor: '#ccc',
     borderWidth: 1,
-    paddingHorizontal: 12,
+    paddingLeft: 12,
+    paddingRight: 34,
     borderRadius: 8,
     backgroundColor: '#fafafa',
     fontSize: 13,
     color: '#000'
   },
+  clearIconBtn: { position: 'absolute', right: 8, padding: 6 },
+  clearIconText: { fontSize: 14, color: '#888', fontWeight: 'bold' },
   searchButton: {
     backgroundColor: '#0066cc',
     paddingHorizontal: 14,
@@ -598,6 +801,31 @@ const styles = StyleSheet.create({
   searchButtonText: { color: 'white', fontWeight: 'bold', fontSize: 13 },
   loadingBox: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   loadingText: { color: '#0066cc', fontSize: 12, fontWeight: '500' },
+
+  // Estilos de búsquedas recientes
+  recentContainer: {
+    marginTop: 8,
+    backgroundColor: '#fafafa',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+    padding: 8,
+  },
+  recentHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  recentHeaderText: { fontSize: 11, fontWeight: 'bold', color: '#555' },
+  recentClearAllText: { fontSize: 11, color: '#cc0000', fontWeight: '600' },
+  recentScroll: { maxHeight: 160 },
+  recentRowItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  recentItemText: { fontSize: 12, color: '#333' },
+  recentDeleteBtn: { fontSize: 13, color: '#999', paddingHorizontal: 4, fontWeight: 'bold' },
+
   suggestionsList: {
     maxHeight: 210,
     marginTop: 8,
@@ -661,7 +889,7 @@ const styles = StyleSheet.create({
   subparcelsHeader: { fontWeight: 'bold', fontSize: 12, color: '#444', marginBottom: 6 },
   subparcelItem: {
     flexDirection: 'row',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 8,
     paddingHorizontal: 6,
