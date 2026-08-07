@@ -7,7 +7,7 @@ export class NavarraProvider {
    * Helper to perform a WFS query to IDENA
    */
   async _queryIDENAWFS(layer, cqlFilter) {
-    const baseUrl = 'http://idena.navarra.es/ogc/wfs';
+    const baseUrl = 'https://idena.navarra.es/ogc/wfs';
     const params = new URLSearchParams({
       service: 'WFS',
       version: '2.0.0',
