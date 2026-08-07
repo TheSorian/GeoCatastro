@@ -553,7 +553,7 @@ export default function App() {
     <SafeAreaView style={styles.container}>
       {/* Buscador Superior con Historial y Botón X */}
       <View style={styles.searchContainer}>
-        <Text style={styles.appTitle}>🏛️ Catastro 360</Text>
+        <Text style={styles.appTitle}>🏛️ GeoCatastro</Text>
         
         <View style={styles.inputRow}>
           <View style={styles.inputBoxContainer}>
