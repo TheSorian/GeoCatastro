@@ -151,16 +151,16 @@ export default function App() {
   // Abrir Ficha Oficial del Catastro en Chrome Custom Tabs
   const openOfficialFicha = async (refCat, delCode, munCode) => {
     try {
-      const cleanRef = refCat.trim();
+      const cleanRef = String(refCat || '').trim();
       let url = '';
 
-      if (cleanRef.length === 20 || (delCode && munCode && cleanRef.length >= 14)) {
-        // Ficha Informativa Oficial Descriptiva (Piso/Inmueble Concreto o Chalet)
-        const del = delCode || '28';
-        const mun = munCode || '900';
+      if (cleanRef.length === 20) {
+        // Ficha Informativa Oficial Descriptiva para inmueble de 20 dígitos o chalet
+        const del = delCode ? String(delCode).padStart(2, '0') : '28';
+        const mun = munCode ? String(munCode) : '900';
         url = `https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCConCiud.aspx?del=${del}&mun=${mun}&UrbRus=U&RefC=${cleanRef}&Apenom=&esBice=&RCBice1=&RCBice2=&DenoBice=&from=nuevoVisor&ZV=NO&anyoZV=`;
       } else {
-        // Parcela Base (14 dígitos)
+        // Parcela Base (13 ó 14 dígitos)
         url = `https://www1.sedecatastro.gob.es/Cartografia/mapa.aspx?refcat=${cleanRef}`;
       }
 
@@ -174,7 +174,7 @@ export default function App() {
     }
   };
 
-  // Obtener datos de parcelas e inmuebles (Consulta_DNPRC) con soporte a chalets (<bico>)
+  // Obtener datos de parcelas e inmuebles (Consulta_DNPRC) con parseTagValue: false (PRESERVA CEROS A LA IZQUIERDA)
   const fetchFullParcelDetails = async (refCat, lat, lon) => {
     setLoading(true);
     setSubparcels([]);
@@ -186,7 +186,8 @@ export default function App() {
       const response = await fetch(urlDNPRC);
       const xmlData = await response.text();
 
-      const parser = new XMLParser();
+      // PARSEADOR SEGURO: Preserva ceros iniciales en strings sin convertir a number
+      const parser = new XMLParser({ parseTagValue: false });
       const jsonObj = parser.parse(xmlData);
 
       const dnp = jsonObj?.consulta_dnp;
@@ -200,14 +201,14 @@ export default function App() {
       // 1. Caso Edificio con varios inmuebles / división horizontal (<lrcdnp>)
       if (dnp?.lrcdnp?.rcdnp) {
         const items = Array.isArray(dnp.lrcdnp.rcdnp) ? dnp.lrcdnp.rcdnp : [dnp.lrcdnp.rcdnp];
-        totalCount = dnp?.control?.cudnp || items.length;
+        totalCount = dnp?.control?.cudnp ? parseInt(dnp.control.cudnp) : items.length;
 
         items.forEach((item, index) => {
           const rcObj = item?.rc;
           const dtObj = item?.dt;
 
           if (index === 0 && dtObj) {
-            delCode = dtObj?.loine?.cp ? String(dtObj.loine.cp) : '';
+            delCode = dtObj?.loine?.cp ? String(dtObj.loine.cp).padStart(2, '0') : '';
             munCode = dtObj?.cmc ? String(dtObj.cmc) : '';
           }
 
@@ -248,7 +249,7 @@ export default function App() {
         const rcObj = bi?.idbi?.rc;
         const dtObj = bi?.dt;
 
-        delCode = dtObj?.loine?.cp ? String(dtObj.loine.cp) : '';
+        delCode = dtObj?.loine?.cp ? String(dtObj.loine.cp).padStart(2, '0') : '';
         munCode = dtObj?.cmc ? String(dtObj.cmc) : '';
         totalCount = 1;
 
@@ -310,16 +311,15 @@ export default function App() {
     }));
 
     try {
-      // 1. Consulta directa al centro
-      let url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${lon}&Coordenada_Y=${lat}`;
-      let response = await fetch(url);
-      let xmlData = await response.text();
-      let parser = new XMLParser();
-      let jsonObj = parser.parse(xmlData);
+      const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${lon}&Coordenada_Y=${lat}`;
+      const response = await fetch(url);
+      const xmlData = await response.text();
+      const parser = new XMLParser({ parseTagValue: false });
+      const jsonObj = parser.parse(xmlData);
 
       let pc = jsonObj?.consulta_coordenadas?.coordenadas?.coord?.pc;
 
-      // 2. Si cayó en el asfalto (cuerr > 0), probe espacial de 10m en 4 direcciones
+      // Si cayó en el asfalto (cuerr > 0), probe espacial de 10m en 4 direcciones
       if (!pc) {
         const offsets = [
           [0.00008, 0.00008],
@@ -382,7 +382,9 @@ export default function App() {
     }
 
     const cleanText = text.trim().toUpperCase();
-    if (cleanText.length >= 14 && !cleanText.includes(' ')) {
+
+    // Detección segura de Referencia Catastral a partir de 13 caracteres sin espacios
+    if (cleanText.length >= 13 && !cleanText.includes(' ') && /^[A-Z0-9]+$/.test(cleanText)) {
       setSuggestions([{
         place_id: 'rc_direct',
         display_name: `🔎 Buscar Referencia Catastral: ${cleanText}`,
@@ -405,7 +407,6 @@ export default function App() {
             const city = attrs.City || attrs.Subregion || '';
             const postal = attrs.Postal || '';
 
-            // Formatear dirección con Pedanía / Núcleo Urbano bien visible
             let formattedTitle = c.address;
             if (district && !c.address.toLowerCase().includes(district.toLowerCase())) {
               const parts = c.address.split(',');
@@ -452,7 +453,7 @@ export default function App() {
 
     const clean = query.trim().toUpperCase();
 
-    if (clean.length >= 14 && !clean.includes(' ')) {
+    if (clean.length >= 13 && !clean.includes(' ') && /^[A-Z0-9]+$/.test(clean)) {
       onSelectSuggestion({ isRC: true, rc: clean });
       return;
     }
@@ -483,10 +484,11 @@ export default function App() {
       saveRecentSearch(item.rc);
       setLoading(true);
       try {
-        const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:4326&RefCat=${item.rc}`;
+        // CORREGIDO: Usar RC= en lugar de RefCat= para que el Catastro devuelva las coordenadas
+        const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:4326&RC=${item.rc}`;
         const response = await fetch(url);
         const xmlData = await response.text();
-        const parser = new XMLParser();
+        const parser = new XMLParser({ parseTagValue: false });
         const jsonObj = parser.parse(xmlData);
 
         const coord = jsonObj?.consulta_coordenadas?.coordenadas?.coord;
@@ -689,9 +691,15 @@ export default function App() {
               <View style={styles.actionButtonsRow}>
                 <TouchableOpacity
                   style={styles.btnPrimary}
-                  onPress={() => openOfficialFicha(parcelDetails.ref20 || parcelDetails.refCat, parcelDetails.del, parcelDetails.mun)}
+                  onPress={() => {
+                    const isSingle = parcelDetails.count === 1;
+                    const refToOpen = isSingle ? (parcelDetails.ref20 || parcelDetails.refCat) : parcelDetails.refCat;
+                    openOfficialFicha(refToOpen, parcelDetails.del, parcelDetails.mun);
+                  }}
                 >
-                  <Text style={styles.btnPrimaryText}>📄 Abrir Ficha Oficial del Inmueble</Text>
+                  <Text style={styles.btnPrimaryText}>
+                    {parcelDetails.count === 1 ? '📄 Abrir Ficha Oficial del Inmueble' : '📄 Abrir Mapa de la Parcela Base'}
+                  </Text>
                 </TouchableOpacity>
 
                 {subparcels.length > 1 && (
@@ -817,7 +825,7 @@ const styles = StyleSheet.create({
   recentScroll: { maxHeight: 160 },
   recentRowItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justify: 'space-between',
     alignItems: 'center',
     paddingVertical: 6,
     borderBottomWidth: 1,
@@ -889,7 +897,7 @@ const styles = StyleSheet.create({
   subparcelsHeader: { fontWeight: 'bold', fontSize: 12, color: '#444', marginBottom: 6 },
   subparcelItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justify: 'space-between',
     alignItems: 'center',
     paddingVertical: 8,
     paddingHorizontal: 6,
