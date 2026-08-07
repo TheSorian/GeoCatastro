@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
-import { XMLParser } from 'fast-xml-parser';
+import { cadastreService } from './services/cadastre/CadastreService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
 import appConfig from './app.json';
@@ -37,6 +37,8 @@ export default function App() {
   const [subparcels, setSubparcels] = useState([]);
   const [showSubparcels, setShowSubparcels] = useState(false);
   const [selectedSubparcel, setSelectedSubparcel] = useState(null);
+  const [selectedRegion, setSelectedRegion] = useState('ES');
+  const [subparcelFilter, setSubparcelFilter] = useState('');
 
   const webViewRef = useRef(null);
   const typingTimer = useRef(null);
@@ -155,8 +157,11 @@ export default function App() {
           attribution: '© OpenStreetMap'
         }).addTo(map);
 
-        var catastroWMS = L.tileLayer.wms('https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx', {
-          layers: 'catastro',
+        var currentWMSUrl = 'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx';
+        var currentWMSLayers = 'catastro';
+
+        var catastroWMS = L.tileLayer.wms(currentWMSUrl, {
+          layers: currentWMSLayers,
           format: 'image/png',
           transparent: true,
           version: '1.1.1',
@@ -170,7 +175,19 @@ export default function App() {
           try {
             var rawData = event.data;
             var data = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
-            if (data.type === 'MOVE_TO') {
+            if (data.type === 'CHANGE_REGION') {
+              if (catastroWMS) map.removeLayer(catastroWMS);
+              currentWMSUrl = data.wmsUrl;
+              currentWMSLayers = data.wmsLayers;
+              catastroWMS = L.tileLayer.wms(currentWMSUrl, {
+                layers: currentWMSLayers,
+                format: 'image/png',
+                transparent: true,
+                version: '1.1.1',
+                maxZoom: 20,
+                opacity: 0.85
+              }).addTo(map);
+            } else if (data.type === 'MOVE_TO') {
               map.setView([data.lat, data.lon], 19);
               if (currentMarker) map.removeLayer(currentMarker);
               currentMarker = L.marker([data.lat, data.lon]).addTo(map);
@@ -199,144 +216,26 @@ export default function App() {
     </html>
   `;
 
-  // Abrir Ficha Oficial del Catastro en Chrome Custom Tabs
-  const openOfficialFicha = async (refCat, delCode, munCode) => {
-    try {
-      const cleanRef = String(refCat || '').trim();
-      let url = '';
-
-      if (cleanRef.length === 20) {
-        // Ficha Informativa Oficial Descriptiva para inmueble de 20 dígitos o chalet
-        const del = delCode ? String(delCode).padStart(2, '0') : '28';
-        const mun = munCode ? String(munCode) : '900';
-        url = `https://www1.sedecatastro.gob.es/CYCBienInmueble/OVCConCiud.aspx?del=${del}&mun=${mun}&UrbRus=U&RefC=${cleanRef}&Apenom=&esBice=&RCBice1=&RCBice2=&DenoBice=&from=nuevoVisor&ZV=NO&anyoZV=`;
-      } else {
-        // Parcela Base (13 ó 14 dígitos)
-        url = `https://www1.sedecatastro.gob.es/Cartografia/mapa.aspx?refcat=${cleanRef}`;
-      }
-
-      await WebBrowser.openBrowserAsync(url, {
-        toolbarColor: '#0066cc',
-        controlsColor: '#ffffff',
-        showTitle: true,
-      });
-    } catch (err) {
-      Alert.alert('Error', 'No se pudo abrir la Ficha del Catastro.');
-    }
+  // Abrir Ficha Oficial delegado a CadastreService
+  const openOfficialFicha = async (item) => {
+    // Para Estado necesitamos refCat (o ref20), delCode, munCode. 
+    // Para Navarra necesitamos también parCode y subareaCode (si existe)
+    const ref = item.ref20 || item.refCat;
+    await cadastreService.openOfficialFicha(ref, item.del, item.mun, item.parCode, item.subareaCode, selectedRegion);
   };
 
-  // Obtener datos de parcelas e inmuebles (Consulta_DNPRC) con parseTagValue: false (PRESERVA CEROS A LA IZQUIERDA)
-  const fetchFullParcelDetails = async (refCat, lat, lon) => {
+  // Obtener datos de parcelas e inmuebles
+  const fetchFullParcelDetails = async (refCat, lat, lon, regionOverride) => {
     setLoading(true);
     setSubparcels([]);
     setShowSubparcels(false);
     setSelectedSubparcel(null);
+    const targetRegion = regionOverride || selectedRegion;
 
     try {
-      const urlDNPRC = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/Consulta_DNPRC?Provincia=&Municipio=&RC=${refCat}`;
-      const response = await fetch(urlDNPRC);
-      const xmlData = await response.text();
-
-      // PARSEADOR SEGURO: Preserva ceros iniciales en strings sin convertir a number
-      const parser = new XMLParser({ parseTagValue: false });
-      const jsonObj = parser.parse(xmlData);
-
-      const dnp = jsonObj?.consulta_dnp;
-
-      let parsedSubparcels = [];
-      let mainAddress = '';
-      let delCode = '';
-      let munCode = '';
-      let totalCount = 0;
-
-      // 1. Caso Edificio con varios inmuebles / división horizontal (<lrcdnp>)
-      if (dnp?.lrcdnp?.rcdnp) {
-        const items = Array.isArray(dnp.lrcdnp.rcdnp) ? dnp.lrcdnp.rcdnp : [dnp.lrcdnp.rcdnp];
-        totalCount = dnp?.control?.cudnp ? parseInt(dnp.control.cudnp) : items.length;
-
-        items.forEach((item, index) => {
-          const rcObj = item?.rc;
-          const dtObj = item?.dt;
-
-          if (index === 0 && dtObj) {
-            delCode = dtObj?.loine?.cp ? String(dtObj.loine.cp).padStart(2, '0') : '';
-            munCode = dtObj?.cmc ? String(dtObj.cmc) : '';
-          }
-
-          const full20RC = rcObj ? `${rcObj.pc1}${rcObj.pc2}${rcObj.car}${rcObj.cc1}${rcObj.cc2}` : refCat;
-
-          const dirObj = dtObj?.locs?.lous?.lourb?.dir;
-          const lointObj = dtObj?.locs?.lous?.lourb?.loint;
-
-          const street = dirObj ? `${dirObj.tv || ''} ${dirObj.nv || ''} ${dirObj.pnp || ''}`.trim() : '';
-          const muni = dtObj?.nm || '';
-          const prov = dtObj?.np || '';
-          const cp = dtObj?.locs?.lous?.lourb?.dp || '';
-
-          const planta = lointObj?.pt ? `Planta ${lointObj.pt}` : '';
-          const puerta = lointObj?.pu ? `Puerta ${lointObj.pu}` : '';
-          const interior = [planta, puerta].filter(Boolean).join(', ');
-
-          if (index === 0) {
-            mainAddress = `${street}, ${muni} (${prov}) ${cp}`.trim();
-          }
-
-          parsedSubparcels.push({
-            id: full20RC,
-            ref20: full20RC,
-            cargo: rcObj?.car || `${index + 1}`,
-            address: street,
-            interior: interior || 'Inmueble / Parcela Principal',
-            muni,
-            prov,
-            del: delCode,
-            mun: munCode
-          });
-        });
-      } 
-      // 2. Caso Finca de 1 solo inmueble / Chalet / Nave (<bico>)
-      else if (dnp?.bico?.bi) {
-        const bi = dnp.bico.bi;
-        const rcObj = bi?.idbi?.rc;
-        const dtObj = bi?.dt;
-
-        delCode = dtObj?.loine?.cp ? String(dtObj.loine.cp).padStart(2, '0') : '';
-        munCode = dtObj?.cmc ? String(dtObj.cmc) : '';
-        totalCount = 1;
-
-        const full20RC = rcObj ? `${rcObj.pc1}${rcObj.pc2}${rcObj.car}${rcObj.cc1}${rcObj.cc2}` : refCat;
-        const dirObj = dtObj?.locs?.lous?.lourb?.dir;
-        const street = dirObj ? `${dirObj.tv || ''} ${dirObj.nv || ''} ${dirObj.pnp || ''}`.trim() : '';
-        const muni = dtObj?.nm || '';
-        const prov = dtObj?.np || '';
-        const cp = dtObj?.locs?.lous?.lourb?.dp || '';
-
-        mainAddress = bi?.ldt || `${street}, ${muni} (${prov}) ${cp}`.trim();
-
-        parsedSubparcels.push({
-          id: full20RC,
-          ref20: full20RC,
-          cargo: rcObj?.car || '0001',
-          address: street,
-          interior: 'Inmueble Único (Finca / Chalet)',
-          muni,
-          prov,
-          del: delCode,
-          mun: munCode
-        });
-      }
-
-      setSubparcels(parsedSubparcels);
-      setParcelDetails({
-        refCat,
-        ref20: parsedSubparcels[0]?.ref20 || refCat,
-        lat,
-        lon,
-        address: mainAddress || 'Ubicación Catastral',
-        count: totalCount,
-        del: delCode,
-        mun: munCode
-      });
+      const data = await cadastreService.fetchFullParcelDetails(refCat, lat, lon, targetRegion);
+      setSubparcels(data.subparcels || []);
+      setParcelDetails(data.parcelDetails);
     } catch (err) {
       setParcelDetails({
         refCat,
@@ -352,8 +251,9 @@ export default function App() {
   };
 
   // Clic en Coordenadas del Mapa con Sondeo Espacial de Radio
-  const fetchParcelByCoords = async (lat, lon) => {
+  const fetchParcelByCoords = async (lat, lon, regionOverride) => {
     setLoading(true);
+    const targetRegion = regionOverride || selectedRegion;
 
     webViewRef.current?.postMessage(JSON.stringify({
       type: 'MOVE_TO',
@@ -362,47 +262,19 @@ export default function App() {
     }));
 
     try {
-      const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${lon}&Coordenada_Y=${lat}`;
-      const response = await fetch(url);
-      const xmlData = await response.text();
-      const parser = new XMLParser({ parseTagValue: false });
-      const jsonObj = parser.parse(xmlData);
+      const result = await cadastreService.fetchParcelByCoords(lat, lon, targetRegion);
 
-      let pc = jsonObj?.consulta_coordenadas?.coordenadas?.coord?.pc;
-
-      // Si cayó en el asfalto (cuerr > 0), probe espacial de 10m en 4 direcciones
-      if (!pc) {
-        const offsets = [
-          [0.00008, 0.00008],
-          [-0.00008, -0.00008],
-          [0.00008, -0.00008],
-          [-0.00008, 0.00008]
-        ];
-        for (const [dx, dy] of offsets) {
-          const pUrl = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_RCCOOR?SRS=EPSG:4326&Coordenada_X=${lon + dx}&Coordenada_Y=${lat + dy}`;
-          const pRes = await fetch(pUrl);
-          const pXml = await pRes.text();
-          const pJson = parser.parse(pXml);
-          const pPc = pJson?.consulta_coordenadas?.coordenadas?.coord?.pc;
-          if (pPc) {
-            pc = pPc;
-            break;
-          }
-        }
-      }
-
-      if (pc) {
-        const refCatastral = `${pc.pc1}${pc.pc2}`;
-        setSelectedParcel({ lat, lon, ref: refCatastral });
+      if (result && result.found) {
+        setSelectedParcel({ lat, lon, ref: result.ref });
 
         webViewRef.current?.postMessage(JSON.stringify({
           type: 'MOVE_TO',
           lat,
           lon,
-          ref: refCatastral
+          ref: result.ref
         }));
 
-        await fetchFullParcelDetails(refCatastral, lat, lon);
+        await fetchFullParcelDetails(result.ref, lat, lon, targetRegion);
       } else {
         setParcelDetails({
           refCat: 'Sin edificio en el punto exacto',
@@ -468,13 +340,16 @@ export default function App() {
               }
             }
 
+            const region = (city.toLowerCase() === 'navarra' || c.address.toLowerCase().includes('navarra') || attrs.Subregion === 'Navarra') ? 'NA' : 'ES';
+
             return {
               place_id: `arcgis_${idx}`,
               display_name: formattedTitle,
               lat: c.location.y,
               lon: c.location.x,
               district,
-              city
+              city,
+              region
             };
           });
           setSuggestions(mapped);
@@ -525,6 +400,17 @@ export default function App() {
     }
   };
 
+  const changeRegion = (newRegion) => {
+    if (newRegion !== selectedRegion) {
+      setSelectedRegion(newRegion);
+      webViewRef.current?.postMessage(JSON.stringify({
+        type: 'CHANGE_REGION',
+        wmsUrl: cadastreService.getWMSUrl(newRegion),
+        wmsLayers: cadastreService.getWMSLayers(newRegion)
+      }));
+    }
+  };
+
   const onSelectSuggestion = async (item) => {
     Keyboard.dismiss();
     setSuggestions([]);
@@ -535,33 +421,18 @@ export default function App() {
       saveRecentSearch(item.rc);
       setLoading(true);
       try {
-        // CORREGIDO: Usar RC= en lugar de RefCat= para que el Catastro devuelva las coordenadas
-        const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:4326&RC=${item.rc}`;
-        const response = await fetch(url);
-        const xmlData = await response.text();
-        const parser = new XMLParser({ parseTagValue: false });
-        const jsonObj = parser.parse(xmlData);
-
-        const coord = jsonObj?.consulta_coordenadas?.coordenadas?.coord;
-        let xcen, ycen;
-        if (Array.isArray(coord)) {
-          xcen = parseFloat(coord[0].geo.xcen);
-          ycen = parseFloat(coord[0].geo.ycen);
-        } else if (coord) {
-          xcen = parseFloat(coord.geo.xcen);
-          ycen = parseFloat(coord.geo.ycen);
-        }
-
-        if (xcen && ycen) {
-          setSelectedParcel({ lat: ycen, lon: xcen, ref: item.rc });
+        const result = await cadastreService.getCoordsFromRC(item.rc, selectedRegion);
+        
+        if (result && result.found) {
+          setSelectedParcel({ lat: result.lat, lon: result.lon, ref: item.rc });
           webViewRef.current?.postMessage(JSON.stringify({
             type: 'MOVE_TO',
-            lat: ycen,
-            lon: xcen,
+            lat: result.lat,
+            lon: result.lon,
             ref: item.rc
           }));
 
-          await fetchFullParcelDetails(item.rc, ycen, xcen);
+          await fetchFullParcelDetails(item.rc, result.lat, result.lon, selectedRegion);
         } else {
           Alert.alert('No encontrada', 'No se encontraron coordenadas para esa Referencia Catastral.');
         }
@@ -577,6 +448,10 @@ export default function App() {
     setQuery(item.display_name);
     saveRecentSearch(item.display_name);
 
+    if (item.region && item.region !== selectedRegion) {
+      changeRegion(item.region);
+    }
+
     const lat = parseFloat(item.lat);
     const lon = parseFloat(item.lon);
 
@@ -586,7 +461,7 @@ export default function App() {
       lon
     }));
 
-    await fetchParcelByCoords(lat, lon);
+    await fetchParcelByCoords(lat, lon, item.region);
   };
 
   const clearInputText = () => {
@@ -631,6 +506,21 @@ export default function App() {
 
           <TouchableOpacity style={styles.searchButton} onPress={executeSearch}>
             <Text style={styles.searchButtonText}>Buscar</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.regionSelectorRow}>
+          <TouchableOpacity 
+            style={[styles.regionBtn, selectedRegion === 'ES' && styles.regionBtnActive]}
+            onPress={() => changeRegion('ES')}
+          >
+            <Text style={[styles.regionBtnText, selectedRegion === 'ES' && styles.regionBtnTextActive]}>🇪🇸 Estado</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.regionBtn, selectedRegion === 'NA' && styles.regionBtnActive]}
+            onPress={() => changeRegion('NA')}
+          >
+            <Text style={[styles.regionBtnText, selectedRegion === 'NA' && styles.regionBtnTextActive]}>🔴 Navarra</Text>
           </TouchableOpacity>
         </View>
 
@@ -745,7 +635,14 @@ export default function App() {
                   onPress={() => {
                     const isSingle = parcelDetails.count === 1;
                     const refToOpen = isSingle ? (parcelDetails.ref20 || parcelDetails.refCat) : parcelDetails.refCat;
-                    openOfficialFicha(refToOpen, parcelDetails.del, parcelDetails.mun);
+                    openOfficialFicha({
+                      refCat: refToOpen,
+                      ref20: parcelDetails.ref20,
+                      del: parcelDetails.del,
+                      mun: parcelDetails.mun,
+                      parCode: parcelDetails.parCode,
+                      subareaCode: '' // Parcela principal
+                    });
                   }}
                 >
                   <Text style={styles.btnPrimaryText}>
@@ -767,9 +664,25 @@ export default function App() {
 
               {/* Lista Desplegable de Subparcelas / Pisos de 20 dígitos */}
               {showSubparcels && subparcels.length > 1 && (
-                <ScrollView style={styles.subparcelsScroll} nestedScrollEnabled={true}>
+                <View style={styles.subparcelsContainer}>
                   <Text style={styles.subparcelsHeader}>Selecciona un piso para abrir su Ficha:</Text>
-                  {subparcels.map((sub, idx) => {
+                  
+                  <TextInput
+                    style={styles.subparcelFilterInput}
+                    placeholder="Filtrar por portal, planta, puerta..."
+                    placeholderTextColor="#888"
+                    value={subparcelFilter}
+                    onChangeText={setSubparcelFilter}
+                  />
+
+                  <ScrollView style={styles.subparcelsScroll} nestedScrollEnabled={true}>
+                    {subparcels.filter(sub => {
+                      if (!subparcelFilter) return true;
+                      const term = subparcelFilter.toLowerCase();
+                      const addr = (sub.address || '').toLowerCase();
+                      const int = (sub.interior || '').toLowerCase();
+                      return addr.includes(term) || int.includes(term);
+                    }).map((sub, idx) => {
                     const isSelected = selectedSubparcel?.id === sub.id;
                     return (
                       <View
@@ -787,7 +700,7 @@ export default function App() {
                         <View style={{ flexDirection: 'row', gap: 6 }}>
                           <TouchableOpacity
                             style={styles.btnMiniFicha}
-                            onPress={() => openOfficialFicha(sub.ref20, sub.del, sub.mun)}
+                            onPress={() => openOfficialFicha(sub)}
                           >
                             <Text style={styles.btnMiniFichaText}>Ficha 🌐</Text>
                           </TouchableOpacity>
@@ -860,6 +773,11 @@ const styles = StyleSheet.create({
   searchButtonText: { color: 'white', fontWeight: 'bold', fontSize: 13 },
   loadingBox: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   loadingText: { color: '#0066cc', fontSize: 12, fontWeight: '500' },
+  regionSelectorRow: { flexDirection: 'row', marginTop: 10, backgroundColor: '#f0f0f0', borderRadius: 8, padding: 2 },
+  regionBtn: { flex: 1, paddingVertical: 6, alignItems: 'center', borderRadius: 6 },
+  regionBtnActive: { backgroundColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 1, elevation: 2 },
+  regionBtnText: { fontSize: 12, color: '#666', fontWeight: '600' },
+  regionBtnTextActive: { color: '#0066cc', fontWeight: 'bold' },
 
   // Estilos de búsquedas recientes
   recentContainer: {
@@ -884,6 +802,27 @@ const styles = StyleSheet.create({
   },
   recentItemText: { fontSize: 12, color: '#333' },
   recentDeleteBtn: { fontSize: 13, color: '#999', paddingHorizontal: 4, fontWeight: 'bold' },
+
+  subparcelsContainer: {
+    maxHeight: 250,
+    marginTop: 10,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+    padding: 8
+  },
+  subparcelsScroll: { },
+  subparcelFilterInput: {
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 6,
+    padding: 8,
+    fontSize: 13,
+    marginBottom: 8,
+    color: '#333'
+  },
 
   suggestionsList: {
     maxHeight: 210,
