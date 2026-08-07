@@ -348,7 +348,7 @@ export default function App() {
               }
             }
 
-            const region = (city.toLowerCase() === 'navarra' || c.address.toLowerCase().includes('navarra') || attrs.Subregion === 'Navarra') ? 'NA' : 'ES';
+            const region = cadastreService.detectRegionFromCoords(c.location.y, c.location.x);
 
             return {
               place_id: `arcgis_${idx}`,
@@ -391,7 +391,7 @@ export default function App() {
                       }
                     }
 
-                    const region = (city.toLowerCase() === 'navarra' || c.address.toLowerCase().includes('navarra') || attrs.Subregion === 'Navarra') ? 'NA' : 'ES';
+                    const region = cadastreService.detectRegionFromCoords(c.location.y, c.location.x);
 
                     mappedSuggestions.push({
                       place_id: `arcgis_sugg_${s.magicKey}`,
