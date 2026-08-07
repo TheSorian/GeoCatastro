@@ -87,13 +87,17 @@ export class NavarraProvider {
         // Extraer subparcelas e inmuebles haciendo scraping del HTML de la ficha
         const parsedSubparcels = await this._fetchNavarraInmuebles(munCode, polCode, parCode, refCat, mainAddress);
 
+        const realAddress = (parsedSubparcels[0]?.address && !parsedSubparcels[0].address.startsWith('Parcela')) 
+          ? parsedSubparcels[0].address 
+          : mainAddress;
+
         return {
           parcelDetails: {
             refCat,
             ref20: refCat,
             lat,
             lon,
-            address: mainAddress,
+            address: realAddress,
             count: parsedSubparcels.length, 
             del: munCode,
             mun: polCode, 
@@ -150,8 +154,22 @@ export class NavarraProvider {
         const resSub = await fetch(urlSub);
         const htmlSub = await resSub.text();
 
-        const domMatch = htmlSub.match(/Domicilio:<\/td>\s*<td[^>]*>([^<]+)/i);
-        const subAddress = domMatch ? domMatch[1].trim().replace(/&nbsp;/g, '') : mainAddress;
+        let subAddress = '';
+        const dataIdx = htmlSub.indexOf('var data =');
+        if (dataIdx !== -1) {
+          const dataSub = htmlSub.substring(dataIdx, htmlSub.indexOf('if (col', dataIdx));
+          const rawItems = dataSub.split('],[');
+          if (rawItems.length > 0) {
+            const first = rawItems[0];
+            const parts = first.split(',');
+            if (parts.length >= 3) {
+              const via = parts[1].replace(/'/g, '').replace(/"/g, '').trim();
+              const num = parts[2].replace(/'/g, '').replace(/"/g, '').replace(/]/g, '').trim();
+              subAddress = [via, num].filter(Boolean).join(' ');
+            }
+          }
+        }
+        if (!subAddress) subAddress = mainAddress;
 
         const rows = htmlSub.split('<td class="bi">');
         let parsed = [];
