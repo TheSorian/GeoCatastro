@@ -230,7 +230,12 @@ export default function App() {
     setSubparcels([]);
     setShowSubparcels(false);
     setSelectedSubparcel(null);
-    const targetRegion = regionOverride || selectedRegion;
+    const detectedRegion = (lat && lon) ? cadastreService.detectRegionFromCoords(lat, lon) : selectedRegion;
+    const targetRegion = regionOverride || detectedRegion;
+
+    if (targetRegion !== selectedRegion) {
+      changeRegion(targetRegion);
+    }
 
     try {
       const data = await cadastreService.fetchFullParcelDetails(refCat, lat, lon, targetRegion);
@@ -253,7 +258,12 @@ export default function App() {
   // Clic en Coordenadas del Mapa con Sondeo Espacial de Radio
   const fetchParcelByCoords = async (lat, lon, regionOverride) => {
     setLoading(true);
-    const targetRegion = regionOverride || selectedRegion;
+    const detectedRegion = cadastreService.detectRegionFromCoords(lat, lon);
+    const targetRegion = regionOverride || detectedRegion;
+
+    if (targetRegion !== selectedRegion) {
+      changeRegion(targetRegion);
+    }
 
     webViewRef.current?.postMessage(JSON.stringify({
       type: 'MOVE_TO',
