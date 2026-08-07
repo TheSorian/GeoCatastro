@@ -2,7 +2,7 @@
   "expo": {
     "name": "GeoCatastro",
     "slug": "geocatastro",
-    "version": "1.0.2",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,7 @@
           "backgroundColor": "#FFFFFF",
           "image": "./assets/splash-icon.png",
           "resizeMode": "contain",
-          "imageWidth": 200
+          "imageWidth": 320
         }
       ]
     ],
