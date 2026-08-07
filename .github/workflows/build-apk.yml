@@ -76,7 +76,7 @@ jobs:
             ### 📱 ¿Cómo instalar en tu teléfono Android?
             1. Descarga el archivo **`app-release.apk`** adjunto abajo.
             2. Ábrelo en tu móvil y pulsa en **Instalar**.
-            3. Si tenías una versión de prueba antigua instalada, desinstálala primero.
+            3. Se puede instalar directamente desde la versión anterior.
           files: android/app/build/outputs/apk/release/app-release.apk
           make_latest: true
         env:
