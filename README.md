@@ -1,6 +1,6 @@
 # 🗺️ GeoCatastro
 
-[![Última Versión](https://img.shields.io/badge/Última_Versión-v1.0.1-0066cc.svg)](https://github.com/TheSorian/CatastroGSM/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/TheSorian/GeoCatastro?color=0066cc&label=Última%20Versión)](https://github.com/TheSorian/GeoCatastro/releases)
 [![React Native](https://img.shields.io/badge/React%20Native-Expo-000000?logo=react&logoColor=61DAFB)](https://expo.dev/)
 [![Licencia](https://img.shields.io/badge/Licencia-MIT-green.svg)](LICENSE)
 
@@ -33,7 +33,7 @@
 
 Puedes descargar la última versión compilada y firmada para Android directamente desde la sección de lanzamientos:
 
-👉 **[Descargar GeoCatastro APK (Releases)](https://github.com/TheSorian/CatastroGSM/releases)**
+👉 **[Descargar GeoCatastro APK (Releases)](https://github.com/TheSorian/GeoCatastro/releases)**
 
 1. Descarga el archivo **`app-release.apk`** en tu móvil Android.
 2. Ábrelo en tu teléfono e instálalo.
@@ -59,7 +59,7 @@ Si deseas clonar el proyecto y ejecutarlo localmente con Expo:
 
 ```bash
 # Clonar el repositorio
-git clone https://github.com/TheSorian/CatastroGSM.git
+git clone https://github.com/TheSorian/GeoCatastro.git
 
 # Entrar en la carpeta
 cd CatastroGSM
