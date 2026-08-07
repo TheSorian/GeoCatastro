@@ -150,6 +150,9 @@ export class NavarraProvider {
         const resSub = await fetch(urlSub);
         const htmlSub = await resSub.text();
 
+        const domMatch = htmlSub.match(/Domicilio:<\/td>\s*<td[^>]*>([^<]+)/i);
+        const subAddress = domMatch ? domMatch[1].trim().replace(/&nbsp;/g, '') : mainAddress;
+
         const rows = htmlSub.split('<td class="bi">');
         let parsed = [];
         for (let i = 1; i < rows.length; i++) {
@@ -165,11 +168,12 @@ export class NavarraProvider {
           const puerta = tds[3] || '';
           const uso = tds[4] || '';
 
-          const interiorDesc = `[Portal ${S}] ` + [esc, planta ? `Planta ${planta}` : '', puerta ? `Puerta ${puerta}` : '', uso ? `(${uso})` : ''].filter(Boolean).join(' ');
+          const streetPrefix = subAddress ? `[${subAddress}] ` : `[Portal ${S}] `;
+          const interiorDesc = streetPrefix + [esc, planta ? `Planta ${planta}` : '', puerta ? `Puerta ${puerta}` : '', uso ? `(${uso})` : ''].filter(Boolean).join(' ');
 
           if (biRef) {
             parsed.push({
-              id: biRef + '_' + uuId, ref20: biRef, cargo: uuId, address: mainAddress, interior: interiorDesc,
+              id: biRef + '_' + uuId, ref20: biRef, cargo: uuId, address: subAddress, interior: interiorDesc,
               muni: cMun, prov: 'Navarra', del: cMun, mun: cPol, parCode: cPar, subareaCode: S
             });
           }

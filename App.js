@@ -12,7 +12,9 @@ import {
   ActivityIndicator,
   ScrollView,
   Clipboard,
-  Dimensions
+  Dimensions,
+  Animated,
+  PanResponder
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
@@ -42,6 +44,64 @@ export default function App() {
 
   const webViewRef = useRef(null);
   const typingTimer = useRef(null);
+
+  // Animaciones y Gestos del Panel Desplazable (Bottom Sheet)
+  const cardAnimY = useRef(new Animated.Value(0)).current;
+  const isExpandedRef = useRef(false);
+
+  const resetCardPosition = () => {
+    isExpandedRef.current = false;
+    Animated.spring(cardAnimY, {
+      toValue: 0,
+      useNativeDriver: true,
+      bounciness: 4
+    }).start();
+  };
+
+  const expandCard = () => {
+    isExpandedRef.current = true;
+    Animated.spring(cardAnimY, {
+      toValue: -SCREEN_HEIGHT * 0.35,
+      useNativeDriver: true,
+      bounciness: 4
+    }).start();
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
+      onPanResponderMove: (_, gestureState) => {
+        let newY = gestureState.dy;
+        if (isExpandedRef.current) {
+          newY = -SCREEN_HEIGHT * 0.35 + gestureState.dy;
+        }
+        if (newY < -SCREEN_HEIGHT * 0.45) newY = -SCREEN_HEIGHT * 0.45;
+        cardAnimY.setValue(newY);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (!isExpandedRef.current) {
+          if (gestureState.dy < -50) {
+            expandCard();
+          } else if (gestureState.dy > 80) {
+            setParcelDetails(null);
+            resetCardPosition();
+          } else {
+            resetCardPosition();
+          }
+        } else {
+          if (gestureState.dy > 50) {
+            resetCardPosition();
+          } else if (gestureState.dy > 200) {
+            setParcelDetails(null);
+            resetCardPosition();
+          } else {
+            expandCard();
+          }
+        }
+      }
+    })
+  ).current;
 
   const CURRENT_VERSION = appConfig.expo.version;
 
@@ -664,7 +724,16 @@ export default function App() {
 
       {/* Tarjeta de Información de la Parcela e Inmuebles */}
       {parcelDetails && (
-        <View style={styles.detailsCard}>
+        <Animated.View 
+          style={[
+            styles.detailsCard, 
+            { transform: [{ translateY: cardAnimY }] }
+          ]}
+        >
+          <View {...panResponder.panHandlers} style={styles.dragHandleContainer}>
+            <View style={styles.dragHandleBar} />
+          </View>
+
           <View style={styles.cardHeader}>
             <View style={{ flex: 1 }}>
               <Text style={styles.cardAddress} numberOfLines={2}>{parcelDetails.address}</Text>
@@ -679,7 +748,13 @@ export default function App() {
               )}
             </View>
 
-            <TouchableOpacity style={styles.closeCardBtn} onPress={() => setParcelDetails(null)}>
+            <TouchableOpacity 
+              style={styles.closeCardBtn} 
+              onPress={() => {
+                setParcelDetails(null);
+                resetCardPosition();
+              }}
+            >
               <Text style={styles.closeCardBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -709,14 +784,22 @@ export default function App() {
                   }}
                 >
                   <Text style={styles.btnPrimaryText}>
-                    {parcelDetails.count === 1 ? '📄 Abrir Ficha del Inmueble' : '📄 Abrir Mapa de Parcela'}
+                    {parcelDetails.count === 1 
+                      ? '📄 Abrir Ficha del Inmueble' 
+                      : (selectedRegion === 'NA' ? '📄 Abrir Ficha de Parcela' : '📄 Abrir Mapa de Parcela')
+                    }
                   </Text>
                 </TouchableOpacity>
 
                 {subparcels.length > 1 && (
                   <TouchableOpacity
                     style={styles.btnSecondary}
-                    onPress={() => setShowSubparcels(!showSubparcels)}
+                    onPress={() => {
+                      const nextState = !showSubparcels;
+                      setShowSubparcels(nextState);
+                      if (nextState) expandCard();
+                      else resetCardPosition();
+                    }}
                   >
                     <Text style={styles.btnSecondaryText}>
                       {showSubparcels ? '▲ Ocultar Pisos / Locales' : '▼ Ver Lista de Pisos / Locales'}
@@ -732,7 +815,7 @@ export default function App() {
                   
                   <TextInput
                     style={styles.subparcelFilterInput}
-                    placeholder="Filtrar por portal, planta, puerta..."
+                    placeholder="Filtrar por portal, calle, planta..."
                     placeholderTextColor="#888"
                     value={subparcelFilter}
                     onChangeText={setSubparcelFilter}
@@ -785,7 +868,7 @@ export default function App() {
           ) : (
             <Text style={styles.hintText}>💡 Toca cualquier parcela o edificio en el mapa para cargar sus datos catastrales completos.</Text>
           )}
-        </View>
+        </Animated.View>
       )}
     </SafeAreaView>
   );
@@ -858,7 +941,7 @@ const styles = StyleSheet.create({
   recentScroll: { maxHeight: 160 },
   recentRowItem: {
     flexDirection: 'row',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 6,
     borderBottomWidth: 1,
@@ -867,8 +950,22 @@ const styles = StyleSheet.create({
   recentItemText: { fontSize: 12, color: '#333' },
   recentDeleteBtn: { fontSize: 13, color: '#999', paddingHorizontal: 4, fontWeight: 'bold' },
 
+  dragHandleContainer: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 6,
+    marginTop: -8,
+    marginBottom: 4,
+  },
+  dragHandleBar: {
+    width: 38,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#ccc',
+  },
+
   subparcelsContainer: {
-    maxHeight: 250,
+    maxHeight: SCREEN_HEIGHT * 0.45,
     marginTop: 10,
     backgroundColor: '#f8f8f8',
     borderRadius: 8,
@@ -876,7 +973,7 @@ const styles = StyleSheet.create({
     borderColor: '#eee',
     padding: 8
   },
-  subparcelsScroll: { },
+  subparcelsScroll: { maxHeight: SCREEN_HEIGHT * 0.35 },
   subparcelFilterInput: {
     backgroundColor: 'white',
     borderWidth: 1,
@@ -909,7 +1006,7 @@ const styles = StyleSheet.create({
     bottom: 20,
     left: 14,
     right: 14,
-    maxHeight: SCREEN_HEIGHT * 0.48,
+    maxHeight: SCREEN_HEIGHT * 0.75,
     backgroundColor: 'white',
     padding: 15,
     borderRadius: 14,
@@ -947,7 +1044,6 @@ const styles = StyleSheet.create({
     borderColor: '#d0e0f0'
   },
   btnSecondaryText: { color: '#0055aa', fontWeight: '600', fontSize: 12 },
-  subparcelsScroll: { marginTop: 10, maxHeight: 160, borderWidth: 1, borderColor: '#eee', borderRadius: 8, padding: 8 },
   subparcelsHeader: { fontWeight: 'bold', fontSize: 12, color: '#444', marginBottom: 6 },
   subparcelItem: {
     flexDirection: 'row',
