@@ -1,0 +1,48 @@
+name: Build Test APK (Manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Decode Keystore from Secret
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $GITHUB_WORKSPACE/release.keystore
+
+      - name: Prebuild Expo (Generate Android folder)
+        run: npx expo prebuild --platform android
+
+      - name: Setup Gradle Build Cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK (Assemble Release)
+        working-directory: android
+        run: ./gradlew assembleRelease --build-cache --parallel -Porg.gradle.jvmargs="-Xmx4096m -XX:+UseParallelGC" -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/release.keystore -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=catastro -Pandroid.injected.signing.key.password=${{ secrets.KEYSTORE_PASSWORD }}
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Catastro-Test-APK
+          path: android/app/build/outputs/apk/release/app-release.apk
