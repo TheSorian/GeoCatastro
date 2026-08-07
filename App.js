@@ -46,25 +46,45 @@ export default function App() {
   const typingTimer = useRef(null);
 
   // Animaciones y Gestos del Panel Desplazable (Bottom Sheet)
-  const cardAnimY = useRef(new Animated.Value(0)).current;
+  const PANEL_HEIGHT = SCREEN_HEIGHT * 0.75;
+  const COLLAPSED_Y = SCREEN_HEIGHT * 0.45;
+  const EXPANDED_Y = 0;
+  const DISMISSED_Y = SCREEN_HEIGHT * 0.85;
+
+  const cardAnimY = useRef(new Animated.Value(COLLAPSED_Y)).current;
   const isExpandedRef = useRef(false);
 
   const resetCardPosition = () => {
     isExpandedRef.current = false;
+    setShowSubparcels(false);
     Animated.spring(cardAnimY, {
-      toValue: 0,
+      toValue: COLLAPSED_Y,
       useNativeDriver: true,
-      bounciness: 4
+      bounciness: 3
     }).start();
   };
 
   const expandCard = () => {
     isExpandedRef.current = true;
+    setShowSubparcels(true);
     Animated.spring(cardAnimY, {
-      toValue: -SCREEN_HEIGHT * 0.35,
+      toValue: EXPANDED_Y,
       useNativeDriver: true,
-      bounciness: 4
+      bounciness: 3
     }).start();
+  };
+
+  const dismissCard = () => {
+    Animated.timing(cardAnimY, {
+      toValue: DISMISSED_Y,
+      duration: 200,
+      useNativeDriver: true
+    }).start(() => {
+      setParcelDetails(null);
+      setShowSubparcels(false);
+      isExpandedRef.current = false;
+      cardAnimY.setValue(COLLAPSED_Y);
+    });
   };
 
   const panResponder = useRef(
@@ -72,11 +92,9 @@ export default function App() {
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 5,
       onPanResponderMove: (_, gestureState) => {
-        let newY = gestureState.dy;
-        if (isExpandedRef.current) {
-          newY = -SCREEN_HEIGHT * 0.35 + gestureState.dy;
-        }
-        if (newY < -SCREEN_HEIGHT * 0.45) newY = -SCREEN_HEIGHT * 0.45;
+        const startY = isExpandedRef.current ? EXPANDED_Y : COLLAPSED_Y;
+        let newY = startY + gestureState.dy;
+        if (newY < -20) newY = -20;
         cardAnimY.setValue(newY);
       },
       onPanResponderRelease: (_, gestureState) => {
@@ -84,16 +102,14 @@ export default function App() {
           if (gestureState.dy < -50) {
             expandCard();
           } else if (gestureState.dy > 80) {
-            setParcelDetails(null);
-            resetCardPosition();
+            dismissCard();
           } else {
             resetCardPosition();
           }
         } else {
-          if (gestureState.dy > 50) {
-            resetCardPosition();
-          } else if (gestureState.dy > 200) {
-            setParcelDetails(null);
+          if (gestureState.dy > 180) {
+            dismissCard();
+          } else if (gestureState.dy > 50) {
             resetCardPosition();
           } else {
             expandCard();
@@ -290,6 +306,8 @@ export default function App() {
     setSubparcels([]);
     setShowSubparcels(false);
     setSelectedSubparcel(null);
+    cardAnimY.setValue(COLLAPSED_Y);
+    isExpandedRef.current = false;
     const detectedRegion = (lat && lon) ? cadastreService.detectRegionFromCoords(lat, lon) : selectedRegion;
     const targetRegion = regionOverride || detectedRegion;
 
@@ -1003,13 +1021,14 @@ const styles = StyleSheet.create({
   map: { flex: 1, zIndex: 1 },
   detailsCard: {
     position: 'absolute',
-    bottom: 20,
-    left: 14,
-    right: 14,
-    maxHeight: SCREEN_HEIGHT * 0.75,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: SCREEN_HEIGHT * 0.75,
     backgroundColor: 'white',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
     padding: 15,
-    borderRadius: 14,
     zIndex: 100,
     elevation: 10,
     shadowColor: '#000',
