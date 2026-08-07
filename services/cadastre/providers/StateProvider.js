@@ -7,7 +7,8 @@ export class StateProvider {
    * Obtiene los detalles completos de la parcela/inmuebles (Consulta_DNPRC)
    */
   async fetchFullParcelDetails(refCat, lat, lon) {
-    const urlDNPRC = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/Consulta_DNPRC?Provincia=&Municipio=&RC=${refCat}`;
+    const clean14 = String(refCat || '').trim().substring(0, 14);
+    const urlDNPRC = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/Consulta_DNPRC?Provincia=&Municipio=&RC=${clean14}`;
     const response = await fetch(urlDNPRC);
     const xmlData = await response.text();
 
@@ -31,9 +32,12 @@ export class StateProvider {
         const rcObj = item?.rc;
         const dtObj = item?.dt;
 
+        const itemDel = dtObj?.loine?.cp ? String(dtObj.loine.cp).padStart(2, '0') : '';
+        const itemMun = (dtObj?.cmc || dtObj?.loine?.cm) ? String(dtObj.cmc || dtObj.loine?.cm) : '';
+
         if (index === 0 && dtObj) {
-          delCode = dtObj?.loine?.cp ? String(dtObj.loine.cp).padStart(2, '0') : '';
-          munCode = dtObj?.cmc ? String(dtObj.cmc) : '';
+          delCode = itemDel;
+          munCode = itemMun;
         }
 
         const full20RC = rcObj ? `${rcObj.pc1}${rcObj.pc2}${rcObj.car}${rcObj.cc1}${rcObj.cc2}` : refCat;
@@ -46,9 +50,13 @@ export class StateProvider {
         const prov = dtObj?.np || '';
         const cp = dtObj?.locs?.lous?.lourb?.dp || '';
 
+        const esc = lointObj?.es ? `Esc. ${lointObj.es}` : '';
         const planta = lointObj?.pt ? `Planta ${lointObj.pt}` : '';
         const puerta = lointObj?.pu ? `Puerta ${lointObj.pu}` : '';
-        const interior = [planta, puerta].filter(Boolean).join(', ');
+        const lointStr = [esc, planta, puerta].filter(Boolean).join(', ');
+        
+        const streetPrefix = street ? `[${street}] ` : '';
+        const interiorDesc = streetPrefix + (lointStr || 'Inmueble / Parcela Principal');
 
         if (index === 0) {
           mainAddress = `${street}, ${muni} (${prov}) ${cp}`.trim();
@@ -59,11 +67,11 @@ export class StateProvider {
           ref20: full20RC,
           cargo: rcObj?.car || `${index + 1}`,
           address: street,
-          interior: interior || 'Inmueble / Parcela Principal',
+          interior: interiorDesc,
           muni,
           prov,
-          del: delCode,
-          mun: munCode
+          del: itemDel || delCode,
+          mun: itemMun || munCode
         });
       });
     } 
@@ -74,7 +82,7 @@ export class StateProvider {
       const dtObj = bi?.dt;
 
       delCode = dtObj?.loine?.cp ? String(dtObj.loine.cp).padStart(2, '0') : '';
-      munCode = dtObj?.cmc ? String(dtObj.cmc) : '';
+      munCode = (dtObj?.cmc || dtObj?.loine?.cm) ? String(dtObj.cmc || dtObj.loine?.cm) : '';
       totalCount = 1;
 
       const full20RC = rcObj ? `${rcObj.pc1}${rcObj.pc2}${rcObj.car}${rcObj.cc1}${rcObj.cc2}` : refCat;
@@ -91,7 +99,7 @@ export class StateProvider {
         ref20: full20RC,
         cargo: rcObj?.car || '0001',
         address: street,
-        interior: 'Inmueble Único (Finca / Chalet)',
+        interior: street ? `[${street}] Inmueble Único (Finca / Chalet)` : 'Inmueble Único (Finca / Chalet)',
         muni,
         prov,
         del: delCode,
