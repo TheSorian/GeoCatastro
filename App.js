@@ -19,6 +19,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { XMLParser } from 'fast-xml-parser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
+import appConfig from './app.json';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -40,7 +41,7 @@ export default function App() {
   const webViewRef = useRef(null);
   const typingTimer = useRef(null);
 
-  const CURRENT_VERSION = '1.0.2';
+  const CURRENT_VERSION = appConfig.expo.version;
 
   // Cargar búsquedas recientes y comprobar actualizaciones en GitHub al iniciar
   useEffect(() => {
