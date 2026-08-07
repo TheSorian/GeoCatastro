@@ -59,8 +59,6 @@ export class NavarraProvider {
         
         const mainAddress = properties.DIRECCION || properties.PARAJE || `Parcela ${parCode}, Polígono ${polCode} (${munCode})`;
 
-        const mainAddress = properties.DIRECCION || properties.PARAJE || `Parcela ${parCode}, Polígono ${polCode} (${munCode})`;
-
         // Extraer subparcelas e inmuebles haciendo scraping del HTML de la ficha
         const parsedSubparcels = await this._fetchNavarraInmuebles(munCode, polCode, parCode, refCat, mainAddress);
 
