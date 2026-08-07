@@ -29,6 +29,13 @@ class CadastreService {
     return this.getProvider(region).openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode);
   }
 
+  detectRegionFromCoords(lat, lon) {
+    if (lat >= 41.85 && lat <= 43.38 && lon >= -2.55 && lon <= -0.65) {
+      return 'NA';
+    }
+    return 'ES';
+  }
+
   getWMSUrl(region = 'ES') {
     return this.getProvider(region).getWMSUrl();
   }
