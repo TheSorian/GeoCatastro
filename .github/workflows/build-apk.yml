@@ -35,26 +35,15 @@ jobs:
       - name: Install dependencies
         run: npm ci || npm install
 
-      - name: Ensure permanent Keystore exists (Auto-Commit)
-        run: |
-          if [ ! -f release.keystore ]; then
-            echo "Keystore no encontrado. Generando uno permanente..."
-            keytool -genkey -v -keystore release.keystore -alias catastro -keyalg RSA -keysize 2048 -validity 10000 -storepass catastro123 -keypass catastro123 -dname "CN=Catastro, OU=Dev, O=Catastro, L=Madrid, S=Madrid, C=ES"
-            git config --global user.name 'GitHub Actions'
-            git config --global user.email 'actions@github.com'
-            git add release.keystore
-            git commit -m "chore: generate permanent release.keystore for APK updates"
-            git push
-          else
-            echo "Keystore permanente encontrado."
-          fi
+      - name: Decode Keystore from Secret
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $GITHUB_WORKSPACE/release.keystore
 
       - name: Prebuild Expo (Generate Android folder)
         run: npx expo prebuild --platform android
 
       - name: Build APK (Assemble Release)
         working-directory: android
-        run: ./gradlew assembleRelease -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/release.keystore -Pandroid.injected.signing.store.password=catastro123 -Pandroid.injected.signing.key.alias=catastro -Pandroid.injected.signing.key.password=catastro123
+        run: ./gradlew assembleRelease -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/release.keystore -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=catastro -Pandroid.injected.signing.key.password=${{ secrets.KEYSTORE_PASSWORD }}
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
