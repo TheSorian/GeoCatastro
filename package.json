@@ -1,10 +1,12 @@
 {
   "name": "catastrogsm",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "main": "index.js",
   "dependencies": {
     "@react-native-async-storage/async-storage": "^3.1.1",
     "expo": "~57.0.9",
+    "expo-constants": "~57.0.1",
+    "expo-splash-screen": "~57.0.1",
     "expo-status-bar": "~57.0.1",
     "expo-web-browser": "^57.0.2",
     "fast-xml-parser": "^5.10.1",
