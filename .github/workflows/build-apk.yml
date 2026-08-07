@@ -50,6 +50,18 @@ jobs:
           name: Catastro-APK
           path: android/app/build/outputs/apk/release/app-release.apk
 
+      - name: Extract Tag Message
+        if: startsWith(github.ref, 'refs/tags/v')
+        id: tag_message
+        run: |
+          TAG_MSG=$(git tag -l --format='%(contents)' ${{ github.ref_name }})
+          if [ -z "$TAG_MSG" ]; then
+            TAG_MSG="Novedades y mejoras de rendimiento."
+          fi
+          echo "tag_msg<<EOF" >> $GITHUB_OUTPUT
+          echo "$TAG_MSG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release (Only on Version Tag)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -58,11 +70,13 @@ jobs:
           body: |
             🚀 **GeoCatastro ${{ github.ref_name }}**
 
+            ### ✨ Novedades de esta versión:
+            ${{ steps.tag_message.outputs.tag_msg }}
+
             ### 📱 ¿Cómo instalar en tu teléfono Android?
             1. Descarga el archivo **`app-release.apk`** adjunto abajo.
             2. Ábrelo en tu móvil y pulsa en **Instalar**.
             3. Si tenías una versión de prueba antigua instalada, desinstálala primero.
-          generate_release_notes: true
           files: android/app/build/outputs/apk/release/app-release.apk
           make_latest: true
         env:
