@@ -316,7 +316,6 @@ export default function App() {
       }]);
       return;
     }
-
     typingTimer.current = setTimeout(async () => {
       try {
         const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(text)}&countryCode=ESP&maxLocations=6&outFields=*`;
@@ -328,7 +327,6 @@ export default function App() {
             const attrs = c.attributes || {};
             const district = attrs.District || attrs.Neighborhood || '';
             const city = attrs.City || attrs.Subregion || '';
-            const postal = attrs.Postal || '';
 
             let formattedTitle = c.address;
             if (district && !c.address.toLowerCase().includes(district.toLowerCase())) {
@@ -354,7 +352,57 @@ export default function App() {
           });
           setSuggestions(mapped);
         } else {
-          // Fallback a Nominatim si no hay resultados
+          // Intentar primero con la API suggest de ArcGIS para consultas de calle + número sin municipio
+          const urlSuggest = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/suggest?f=json&text=${encodeURIComponent(text)}&countryCode=ESP&maxSuggestions=6`;
+          const resS = await fetch(urlSuggest);
+          const dataS = await resS.json();
+
+          if (dataS?.suggestions?.length > 0) {
+            const mappedSuggestions = [];
+            for (const s of dataS.suggestions) {
+              if (s.magicKey) {
+                try {
+                  const urlKey = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&magicKey=${s.magicKey}&outFields=*`;
+                  const resKey = await fetch(urlKey);
+                  const dataKey = await resKey.json();
+                  if (dataKey?.candidates?.[0]) {
+                    const c = dataKey.candidates[0];
+                    const attrs = c.attributes || {};
+                    const district = attrs.District || attrs.Neighborhood || '';
+                    const city = attrs.City || attrs.Subregion || '';
+
+                    let formattedTitle = c.address;
+                    if (district && !c.address.toLowerCase().includes(district.toLowerCase())) {
+                      const parts = c.address.split(',');
+                      if (parts.length >= 2) {
+                        formattedTitle = `${parts[0].trim()}, ${district} (${parts.slice(1).join(',').trim()})`;
+                      } else {
+                        formattedTitle = `${c.address}, ${district}`;
+                      }
+                    }
+
+                    const region = (city.toLowerCase() === 'navarra' || c.address.toLowerCase().includes('navarra') || attrs.Subregion === 'Navarra') ? 'NA' : 'ES';
+
+                    mappedSuggestions.push({
+                      place_id: `arcgis_sugg_${s.magicKey}`,
+                      display_name: formattedTitle,
+                      lat: c.location.y,
+                      lon: c.location.x,
+                      district,
+                      city,
+                      region
+                    });
+                  }
+                } catch(e) {}
+              }
+            }
+            if (mappedSuggestions.length > 0) {
+              setSuggestions(mappedSuggestions);
+              return;
+            }
+          }
+
+          // Fallback final a Nominatim si no hay resultados en ArcGIS
           const fallbackUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&countrycodes=es&limit=5`;
           const resNom = await fetch(fallbackUrl, {
             headers: { 'User-Agent': 'CatastroGSM-App/1.0' }
@@ -475,6 +523,9 @@ export default function App() {
     Alert.alert('Copiado', `Referencia copiada al portapapeles:\n${text}`);
   };
 
+  const cleanQuery = query.trim().toUpperCase();
+  const isRCInput = cleanQuery.length >= 13 && !cleanQuery.includes(' ') && /^[A-Z0-9]+$/.test(cleanQuery);
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Buscador Superior con Historial y Botón X */}
@@ -509,20 +560,22 @@ export default function App() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.regionSelectorRow}>
-          <TouchableOpacity 
-            style={[styles.regionBtn, selectedRegion === 'ES' && styles.regionBtnActive]}
-            onPress={() => changeRegion('ES')}
-          >
-            <Text style={[styles.regionBtnText, selectedRegion === 'ES' && styles.regionBtnTextActive]}>🇪🇸 Estado</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.regionBtn, selectedRegion === 'NA' && styles.regionBtnActive]}
-            onPress={() => changeRegion('NA')}
-          >
-            <Text style={[styles.regionBtnText, selectedRegion === 'NA' && styles.regionBtnTextActive]}>🔴 Navarra</Text>
-          </TouchableOpacity>
-        </View>
+        {isRCInput && (
+          <View style={styles.regionSelectorRow}>
+            <TouchableOpacity 
+              style={[styles.regionBtn, selectedRegion === 'ES' && styles.regionBtnActive]}
+              onPress={() => changeRegion('ES')}
+            >
+              <Text style={[styles.regionBtnText, selectedRegion === 'ES' && styles.regionBtnTextActive]}>🇪🇸 Estado</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.regionBtn, selectedRegion === 'NA' && styles.regionBtnActive]}
+              onPress={() => changeRegion('NA')}
+            >
+              <Text style={[styles.regionBtnText, selectedRegion === 'NA' && styles.regionBtnTextActive]}>🔴 Navarra</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {loading && (
           <View style={styles.loadingBox}>

@@ -49,6 +49,31 @@ export class NavarraProvider {
         geojson = await this._queryIDENAWFS('IDENA:CATAST_Pol_ParcelaMixta', `INTERSECTS(the_geom, POINT(${lon} ${lat}))`);
       }
 
+      // Fallback de proximidad por BBOX en Portales si el punto cae en la acera/calle
+      if (!geojson?.features || geojson.features.length === 0) {
+        const delta = 0.00035;
+        const bboxP = `BBOX(the_geom, ${lon - delta}, ${lat - delta}, ${lon + delta}, ${lat + delta}, 'EPSG:4326')`;
+        const jsonP = await this._queryIDENAWFS('IDENA:CATAST_Txt_Portal', bboxP);
+        
+        if (jsonP?.features && jsonP.features.length > 0) {
+          let best = null;
+          let minDist = Infinity;
+          for (const f of jsonP.features) {
+            const coords = f.geometry?.coordinates;
+            if (coords) {
+              const d = Math.hypot(coords[0] - lon, coords[1] - lat);
+              if (d < minDist) {
+                minDist = d;
+                best = f;
+              }
+            }
+          }
+          if (best?.properties?.IDCATASTRO) {
+            geojson = await this._queryIDENAWFS('IDENA:CATAST_Pol_ParcelaUrba', `IDCATASTRO = ${best.properties.IDCATASTRO}`);
+          }
+        }
+      }
+
       if (geojson?.features && geojson.features.length > 0) {
         const properties = geojson.features[0].properties;
         
@@ -181,15 +206,44 @@ export class NavarraProvider {
         geojson = await this._queryIDENAWFS('IDENA:CATAST_Pol_ParcelaMixta', `INTERSECTS(the_geom, POINT(${lon} ${lat}))`);
       }
 
+      // Fallback de proximidad por BBOX en Portales si el punto cae en la acera/calle
+      if (!geojson?.features || geojson.features.length === 0) {
+        const delta = 0.00035;
+        const bboxP = `BBOX(the_geom, ${lon - delta}, ${lat - delta}, ${lon + delta}, ${lat + delta}, 'EPSG:4326')`;
+        const jsonP = await this._queryIDENAWFS('IDENA:CATAST_Txt_Portal', bboxP);
+        
+        if (jsonP?.features && jsonP.features.length > 0) {
+          let best = null;
+          let minDist = Infinity;
+          for (const f of jsonP.features) {
+            const coords = f.geometry?.coordinates;
+            if (coords) {
+              const d = Math.hypot(coords[0] - lon, coords[1] - lat);
+              if (d < minDist) {
+                minDist = d;
+                best = f;
+              }
+            }
+          }
+          if (best?.properties?.IDCATASTRO) {
+            geojson = await this._queryIDENAWFS('IDENA:CATAST_Pol_ParcelaUrba', `IDCATASTRO = ${best.properties.IDCATASTRO}`);
+          }
+        }
+      }
+
+      // Si aún así no hay portales, probar BBOX directo en ParcelaUrba
+      if (!geojson?.features || geojson.features.length === 0) {
+        const delta = 0.0003;
+        const bboxU = `BBOX(the_geom, ${lon - delta}, ${lat - delta}, ${lon + delta}, ${lat + delta}, 'EPSG:4326')`;
+        geojson = await this._queryIDENAWFS('IDENA:CATAST_Pol_ParcelaUrba', bboxU);
+      }
+
       if (geojson?.features && geojson.features.length > 0) {
         const properties = geojson.features[0].properties;
-        // Dependiendo de IDENA, el campo puede llamarse REFERENCIA, RC, PARCELA_ID, etc. 
-        // Armamos un identificador si no viene la RC de 14 dígitos directa.
         const cMun = properties.CMUNICIPIO || properties.MUNICIPIO || '000';
         const cPol = properties.POLIGONO || '000';
         const cPar = properties.PARCELA || '00000';
         
-        // Normalmente Navarra usa la concatenación o algún código interno
         const refCatastral = properties.RC || properties.REFCATASTRAL || `NA_${cMun}_${cPol}_${cPar}`;
 
         return { found: true, ref: refCatastral, lat, lon };
@@ -206,8 +260,6 @@ export class NavarraProvider {
    */
   async getCoordsFromRC(rc) {
     try {
-      // Como el formato de RC en Navarra a veces es de 14 o diferente
-      // Buscamos con filtro en las capas
       const filter = `RC = '${rc}' OR REFCATASTRAL = '${rc}'`;
       
       let geojson = await this._queryIDENAWFS('IDENA:CATAST_Pol_ParcelaUrba', filter);
@@ -216,7 +268,6 @@ export class NavarraProvider {
       }
 
       if (geojson?.features && geojson.features.length > 0) {
-        // Obtenemos el centroide de forma aproximada tomando la primera coordenada del polígono
         const geom = geojson.features[0].geometry;
         let coords;
         if (geom.type === 'MultiPolygon') {
@@ -240,12 +291,10 @@ export class NavarraProvider {
    */
   async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode) {
     try {
-      // delCode guarda el Municipio (C), munCode guarda el Polígono (PO), parCode guarda la Parcela (PA)
       let municipio = delCode || '';
       let poligono = munCode || '';
       let parcela = parCode || '';
 
-      // Si no los tenemos, intentamos extraerlos de nuestra RC artificial
       if (!municipio && String(refCat).startsWith('NA_')) {
         const parts = String(refCat).split('_');
         if (parts.length >= 4) {
@@ -274,7 +323,7 @@ export class NavarraProvider {
    * Obtiene la URL del WMS para esta región
    */
   getWMSUrl() {
-    return 'http://idena.navarra.es/ogc/wms.aspx';
+    return 'https://idena.navarra.es/ogc/wms';
   }
 
   /**
