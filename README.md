@@ -1,6 +1,6 @@
 # 🗺️ GeoCatastro
 
-[![GitHub Release](https://img.shields.io/github/v/release/TheSorian/CatastroGSM?color=0066cc&label=Última%20Versión)](https://github.com/TheSorian/CatastroGSM/releases)
+[![Última Versión](https://img.shields.io/badge/Última_Versión-v1.0.1-0066cc.svg)](https://github.com/TheSorian/CatastroGSM/releases)
 [![React Native](https://img.shields.io/badge/React%20Native-Expo-000000?logo=react&logoColor=61DAFB)](https://expo.dev/)
 [![Licencia](https://img.shields.io/badge/Licencia-MIT-green.svg)](LICENSE)
 
