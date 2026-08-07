@@ -18,6 +18,9 @@ import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
 import { XMLParser } from 'fast-xml-parser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SplashScreen from 'expo-splash-screen';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const STORAGE_KEY = '@catastro_recent_searches_v1';
@@ -43,6 +46,7 @@ export default function App() {
   useEffect(() => {
     loadRecentSearches();
     checkAppUpdate();
+    SplashScreen.hideAsync().catch(() => {});
   }, []);
 
   const checkAppUpdate = async () => {
