@@ -4,7 +4,7 @@
 [![React Native](https://img.shields.io/badge/React%20Native-Expo-000000?logo=react&logoColor=61DAFB)](https://expo.dev/)
 [![Licencia](https://img.shields.io/badge/Licencia-MIT-green.svg)](LICENSE)
 
-**GeoCatastro** es una aplicación móvil nativa (Android / iOS) diseñada para consultar, localizar e inspeccionar parcelas, fincas e inmuebles de la **Sede Electrónica del Catastro de España** directamente sobre un mapa interactivo.
+**GeoCatastro** es una aplicación móvil nativa para Android diseñada para consultar, localizar e inspeccionar parcelas, fincas e inmuebles de la **Sede Electrónica del Catastro de España** directamente sobre un mapa interactivo.
 
 ---
 
