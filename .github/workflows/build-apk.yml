@@ -40,17 +40,9 @@ jobs:
       - name: Setup Gradle Build Cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Determine ABI Filter
-        run: |
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "ABI_FLAG=" >> $GITHUB_ENV
-          else
-            echo "ABI_FLAG=-Pandroid.injected.build.abi.filters=arm64-v8a" >> $GITHUB_ENV
-          fi
-
       - name: Build APK (Assemble Release)
         working-directory: android
-        run: ./gradlew assembleRelease --build-cache --parallel $ABI_FLAG -Porg.gradle.jvmargs="-Xmx4096m -XX:+UseParallelGC" -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/release.keystore -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=catastro -Pandroid.injected.signing.key.password=${{ secrets.KEYSTORE_PASSWORD }}
+        run: ./gradlew assembleRelease --build-cache --parallel -Porg.gradle.jvmargs="-Xmx4096m -XX:+UseParallelGC" -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/release.keystore -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=catastro -Pandroid.injected.signing.key.password=${{ secrets.KEYSTORE_PASSWORD }}
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
