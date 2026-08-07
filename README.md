@@ -14,7 +14,7 @@
 * 🔎 **Buscador Inteligente Multi-Criterio:**
   - Búsqueda por **Dirección, Calle y Número**.
   - Reconocimiento de **Pedanías, Barrios y Distritos** (ej: *Ocenilla, Cidones*).
-  - Búsqueda directa por **Referencia Catastral** (13, 14 y 20 dígitos) preservando ceros iniciales.
+  - Búsqueda directa por **Referencia Catastral** (14 y 20 dígitos) preservando ceros iniciales.
   - Búsqueda por **Coordenadas GPS** (Latitud, Longitud).
 * 🏢 **Inspector de Fincas y Subparcelas:**
   - Soporte para **Edificios con División Horizontal** (muestra la lista completa de pisos, locales y trasteros de 20 dígitos).
@@ -24,9 +24,6 @@
   - Vista cartográfica de la **Parcela Base** (`mapa.aspx`).
 * 🕒 **Historial de Búsquedas Recientes:**
   - Persistencia local mediante `AsyncStorage` con opción de borrado individual o completo.
-* 🎨 **Diseño Adaptativo Premium:**
-  - Pantalla de carga con textura topográfica.
-  - Iconos adaptativos en formato *Android Adaptive Icon* (Squircle, Círculo, Cuadrado redondeado, Gota) e icono monocromo para Android 13+.
 * 🔐 **Compilación Automatizada y Firma Permanente:**
   - Integración Continua (CI/CD) con GitHub Actions para generar APKs firmados y actualizables sin necesidad de desinstalar.
 
