@@ -61,9 +61,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          name: GeoCatastro ${{ github.ref_name }} (APK Oficial)
+          name: ${{ github.ref_name }}
           body: |
-            🚀 **GeoCatastro ${{ github.ref_name }} - Versión Oficial Firmada**
+            🚀 **GeoCatastro ${{ github.ref_name }}**
 
             ### 📱 ¿Cómo instalar en tu teléfono Android?
             1. Descarga el archivo **`app-release.apk`** adjunto abajo.
