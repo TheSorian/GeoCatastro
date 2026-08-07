@@ -698,7 +698,7 @@ export default function App() {
                   }}
                 >
                   <Text style={styles.btnPrimaryText}>
-                    {parcelDetails.count === 1 ? '📄 Abrir Ficha Oficial del Inmueble' : '📄 Abrir Mapa de la Parcela Base'}
+                    {parcelDetails.count === 1 ? '📄 Abrir Ficha del Inmueble' : '📄 Abrir Mapa de Parcela'}
                   </Text>
                 </TouchableOpacity>
 
@@ -717,7 +717,7 @@ export default function App() {
               {/* Lista Desplegable de Subparcelas / Pisos de 20 dígitos */}
               {showSubparcels && subparcels.length > 1 && (
                 <ScrollView style={styles.subparcelsScroll} nestedScrollEnabled={true}>
-                  <Text style={styles.subparcelsHeader}>Selecciona un piso para abrir su Ficha Oficial:</Text>
+                  <Text style={styles.subparcelsHeader}>Selecciona un piso para abrir su Ficha:</Text>
                   {subparcels.map((sub, idx) => {
                     const isSelected = selectedSubparcel?.id === sub.id;
                     return (

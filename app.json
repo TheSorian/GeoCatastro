@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Catastro 360",
-    "slug": "catastro-360",
+    "name": "GeoCatastro",
+    "slug": "geocatastro",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,21 +9,22 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0A192F"
+      "backgroundColor": "#FFFFFF"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.thesorian.catastro360"
+      "bundleIdentifier": "com.thesorian.geocatastro"
     },
     "android": {
-      "package": "com.thesorian.catastro360",
+      "package": "com.thesorian.geocatastro",
       "adaptiveIcon": {
-        "backgroundColor": "#0A192F",
-        "foregroundImage": "./assets/android-icon-foreground.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
       }
     },
     "web": {
-      "favicon": "./assets/icon.png"
+      "favicon": "./assets/favicon.png"
     }
   }
 }
