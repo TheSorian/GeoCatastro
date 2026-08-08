@@ -426,7 +426,8 @@ export default function App() {
               }
             }
 
-            const region = cadastreService.detectRegionFromCoords(c.location.y, c.location.x);
+            const fullAddrText = `${formattedTitle} ${district} ${city}`;
+            const region = cadastreService.detectRegionFromCoords(c.location.y, c.location.x, fullAddrText);
 
             return {
               place_id: `arcgis_${idx}`,
@@ -469,7 +470,8 @@ export default function App() {
                       }
                     }
 
-                    const region = cadastreService.detectRegionFromCoords(c.location.y, c.location.x);
+                    const fullAddrText = `${formattedTitle} ${district} ${city}`;
+                    const region = cadastreService.detectRegionFromCoords(c.location.y, c.location.x, fullAddrText);
 
                     mappedSuggestions.push({
                       place_id: `arcgis_sugg_${s.magicKey}`,

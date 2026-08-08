@@ -1,6 +1,6 @@
 {
   "name": "catastrogsm",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "main": "index.js",
   "dependencies": {
     "@react-native-async-storage/async-storage": "^3.1.1",
