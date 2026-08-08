@@ -789,11 +789,10 @@ export default function App() {
                 <TouchableOpacity
                   style={styles.btnPrimary}
                   onPress={() => {
-                    const isSingle = parcelDetails.count === 1;
-                    const refToOpen = isSingle ? (parcelDetails.ref20 || parcelDetails.refCat) : parcelDetails.refCat;
+                    const clean14 = String(parcelDetails.refCat || '').trim().substring(0, 14);
                     openOfficialFicha({
-                      refCat: refToOpen,
-                      ref20: parcelDetails.ref20,
+                      refCat: clean14,
+                      ref20: clean14,
                       del: parcelDetails.del,
                       mun: parcelDetails.mun,
                       parCode: parcelDetails.parCode,
