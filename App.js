@@ -889,7 +889,23 @@ export default function App() {
               )}
             </>
           ) : (
-            <Text style={styles.hintText}>💡 Toca cualquier parcela o edificio en el mapa para cargar sus datos catastrales completos.</Text>
+            <View style={{ marginTop: 10 }}>
+              <Text style={styles.hintText}>💡 ¿No se detecta edificio o deseas consultar en otro Catastro?</Text>
+              <TouchableOpacity
+                style={[styles.btnSecondary, { marginTop: 8 }]}
+                onPress={() => {
+                  const targetRegion = selectedRegion === 'NA' ? 'ES' : 'NA';
+                  changeRegion(targetRegion);
+                  if (parcelDetails.lat && parcelDetails.lon) {
+                    fetchParcelByCoords(parcelDetails.lat, parcelDetails.lon, targetRegion);
+                  }
+                }}
+              >
+                <Text style={styles.btnSecondaryText}>
+                  {selectedRegion === 'NA' ? '🌐 Consultar en Catastro Estatal' : '🔴 Consultar en Catastro de Navarra'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           )}
         </Animated.View>
       )}
