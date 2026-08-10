@@ -128,6 +128,53 @@ export class NavarraProvider {
     };
   }
 
+  _parseSubparcelsFromHTML(htmlSub, S, mainAddress, cMun, cPol, cPar, refCat) {
+    let subAddress = '';
+    const dataIdx = htmlSub.indexOf('var data =');
+    if (dataIdx !== -1) {
+      const endIdx = htmlSub.indexOf('if (col', dataIdx);
+      const dataSub = htmlSub.substring(dataIdx, endIdx !== -1 ? endIdx : dataIdx + 500);
+      const rawItems = dataSub.split('],[');
+      if (rawItems.length > 0) {
+        const first = rawItems[0];
+        const parts = first.split(',');
+        if (parts.length >= 3) {
+          const via = parts[1].replace(/'/g, '').replace(/"/g, '').trim();
+          const num = parts[2].replace(/'/g, '').replace(/"/g, '').replace(/]/g, '').trim();
+          subAddress = [via, num].filter(Boolean).join(' ');
+        }
+      }
+    }
+    if (!subAddress) subAddress = mainAddress;
+
+    const rows = htmlSub.split('<td class="bi">');
+    let parsed = [];
+    for (let i = 1; i < rows.length; i++) {
+      const chunk = rows[i];
+      const refMatch = chunk.match(/^([^<]+)/);
+      const trRest = chunk.split('</tr>')[0];
+      const tds = [...trRest.matchAll(/<td[^>]*>([^<]*)<*/gi)].map(m => m[1].trim().replace(/&nbsp;/g, ''));
+      
+      const biRef = refMatch ? refMatch[1].trim() : '';
+      const uuId = tds[0] || '';
+      const esc = tds[1] || '';
+      const planta = tds[2] || '';
+      const puerta = tds[3] || '';
+      const uso = tds[4] || '';
+
+      const streetPrefix = subAddress ? `[${subAddress}] ` : (S ? `[Subárea ${S}] ` : '');
+      const interiorDesc = streetPrefix + [esc, planta ? `Planta ${planta}` : '', puerta ? `Puerta ${puerta}` : '', uso ? `(${uso})` : ''].filter(Boolean).join(' ');
+
+      if (biRef) {
+        parsed.push({
+          id: biRef + '_' + uuId, ref20: biRef, cargo: uuId, address: subAddress, interior: interiorDesc || 'Inmueble / Piso',
+          muni: cMun, prov: 'Navarra', del: cMun, mun: cPol, parCode: cPar, subareaCode: S || '1'
+        });
+      }
+    }
+    return parsed;
+  }
+
   async _fetchNavarraInmuebles(cMun, cPol, cPar, refCat, mainAddress) {
     let allSubparcels = [];
     try {
@@ -135,12 +182,17 @@ export class NavarraProvider {
       const resParcela = await fetch(urlParcela);
       const htmlParcela = await resParcela.text();
 
-      // Buscamos los botones de las subáreas: onClick="unidades(1)"
+      // 1. Intentar parsear los inmuebles directamente de la página principal (casos de subárea única)
+      const directSubparcels = this._parseSubparcelsFromHTML(htmlParcela, '', mainAddress, cMun, cPol, cPar, refCat);
+
+      // 2. Buscamos si existen botones de subáreas múltiples: onClick="unidades(1)"
       const subareaMatches = [...htmlParcela.matchAll(/onClick="unidades\((\d+)\)"/g)];
-      let subareas = subareaMatches.map(m => m[1]);
-      subareas = [...new Set(subareas)]; // Eliminar duplicados
+      let subareas = [...new Set(subareaMatches.map(m => m[1]))];
 
       if (subareas.length === 0) {
+        if (directSubparcels.length > 0) {
+          return directSubparcels;
+        }
         allSubparcels.push({
           id: refCat, ref20: refCat, cargo: '0001', address: mainAddress, interior: 'Parcela / Inmueble Único',
           muni: cMun, prov: 'Navarra', del: cMun, mun: cPol, parCode: cPar, subareaCode: ''
@@ -148,55 +200,12 @@ export class NavarraProvider {
         return allSubparcels;
       }
 
-      // 2. Por cada subárea, bajar sus pisos en paralelo
+      // 3. Por cada subárea múltiple, bajar sus pisos en paralelo
       const fetchPromises = subareas.map(async (S) => {
         const urlSub = `https://catastro.navarra.es/ref_catastral/unidades.aspx?C=${cMun}&PO=${cPol}&PA=${cPar}&S=${S}&lang=es`;
         const resSub = await fetch(urlSub);
         const htmlSub = await resSub.text();
-
-        let subAddress = '';
-        const dataIdx = htmlSub.indexOf('var data =');
-        if (dataIdx !== -1) {
-          const dataSub = htmlSub.substring(dataIdx, htmlSub.indexOf('if (col', dataIdx));
-          const rawItems = dataSub.split('],[');
-          if (rawItems.length > 0) {
-            const first = rawItems[0];
-            const parts = first.split(',');
-            if (parts.length >= 3) {
-              const via = parts[1].replace(/'/g, '').replace(/"/g, '').trim();
-              const num = parts[2].replace(/'/g, '').replace(/"/g, '').replace(/]/g, '').trim();
-              subAddress = [via, num].filter(Boolean).join(' ');
-            }
-          }
-        }
-        if (!subAddress) subAddress = mainAddress;
-
-        const rows = htmlSub.split('<td class="bi">');
-        let parsed = [];
-        for (let i = 1; i < rows.length; i++) {
-          const chunk = rows[i];
-          const refMatch = chunk.match(/^([^<]+)/);
-          const trRest = chunk.split('</tr>')[0];
-          const tds = [...trRest.matchAll(/<td[^>]*>([^<]*)<*/gi)].map(m => m[1].trim().replace(/&nbsp;/g, ''));
-          
-          const biRef = refMatch ? refMatch[1].trim() : '';
-          const uuId = tds[0] || '';
-          const esc = tds[1] || '';
-          const planta = tds[2] || '';
-          const puerta = tds[3] || '';
-          const uso = tds[4] || '';
-
-          const streetPrefix = subAddress ? `[${subAddress}] ` : `[Portal ${S}] `;
-          const interiorDesc = streetPrefix + [esc, planta ? `Planta ${planta}` : '', puerta ? `Puerta ${puerta}` : '', uso ? `(${uso})` : ''].filter(Boolean).join(' ');
-
-          if (biRef) {
-            parsed.push({
-              id: biRef + '_' + uuId, ref20: biRef, cargo: uuId, address: subAddress, interior: interiorDesc,
-              muni: cMun, prov: 'Navarra', del: cMun, mun: cPol, parCode: cPar, subareaCode: S
-            });
-          }
-        }
-        return parsed;
+        return this._parseSubparcelsFromHTML(htmlSub, S, mainAddress, cMun, cPol, cPar, refCat);
       });
 
       const results = await Promise.all(fetchPromises);
@@ -205,6 +214,7 @@ export class NavarraProvider {
       });
 
       if (allSubparcels.length === 0) {
+        if (directSubparcels.length > 0) return directSubparcels;
         allSubparcels.push({ id: refCat, ref20: refCat, address: mainAddress, interior: 'Parcela de Navarra', del: cMun, mun: cPol, parCode: cPar, subareaCode: '' });
       }
 
