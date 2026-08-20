@@ -55,11 +55,13 @@ export default function App() {
 
   // Estados de la Herramienta de Medición
   const [measureMode, setMeasureMode] = useState(null); // null | 'distance' | 'area'
+  const [snapEnabled, setSnapEnabled] = useState(true);
   const [measureStats, setMeasureStats] = useState({
     distance: 0,
     area: 0,
     perimeter: 0,
-    pointsCount: 0
+    pointsCount: 0,
+    snapped: false
   });
 
   const webViewRef = useRef(null);
@@ -324,7 +326,7 @@ export default function App() {
   const startMeasureMode = (mode) => {
     setParcelDetails(null);
     setMeasureMode(mode);
-    setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0 });
+    setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0, snapped: false });
     webViewRef.current?.postMessage(JSON.stringify({
       type: 'SET_MEASURE_MODE',
       mode: mode
@@ -333,10 +335,19 @@ export default function App() {
 
   const exitMeasureMode = () => {
     setMeasureMode(null);
-    setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0 });
+    setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0, snapped: false });
     webViewRef.current?.postMessage(JSON.stringify({
       type: 'SET_MEASURE_MODE',
       mode: null
+    }));
+  };
+
+  const toggleSnap = () => {
+    const nextVal = !snapEnabled;
+    setSnapEnabled(nextVal);
+    webViewRef.current?.postMessage(JSON.stringify({
+      type: 'SET_SNAP_ENABLED',
+      enabled: nextVal
     }));
   };
 
@@ -347,7 +358,7 @@ export default function App() {
   };
 
   const clearMeasurePoints = () => {
-    setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0 });
+    setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0, snapped: false });
     webViewRef.current?.postMessage(JSON.stringify({
       type: 'MEASURE_CLEAR'
     }));
@@ -387,25 +398,33 @@ export default function App() {
     <body>
       <div id="map"></div>
       <script>
-        var map = L.map('map', { zoomControl: false }).setView([40.4168, -3.7038], 16);
+        var map = L.map('map', { 
+          zoomControl: false, 
+          maxZoom: 24, 
+          minZoom: 5 
+        }).setView([40.4168, -3.7038], 16);
         L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-        // --- Definición de Capas Base ---
+        // --- Definición de Capas Base con Sobremuestreo Suave hasta Zoom 24 ---
         var baseLayers = {
           'osm': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
+            maxNativeZoom: 19,
+            maxZoom: 24,
             attribution: '© OpenStreetMap'
           }),
           'ign_base': L.tileLayer('https://www.ign.es/wmts/ign-base?service=WMTS&request=GetTile&version=1.0.0&layer=IGNBaseTodo&style=default&format=image/jpeg&TileMatrixSet=EPSG:3857&TileMatrix={z}&TileRow={y}&TileCol={x}', {
-            maxZoom: 19,
+            maxNativeZoom: 19,
+            maxZoom: 24,
             attribution: '© IGN España'
           }),
           'ign_pnoa': L.tileLayer('https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetTile&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&format=image/jpeg&TileMatrixSet=EPSG:3857&TileMatrix={z}&TileRow={y}&TileCol={x}', {
-            maxZoom: 20,
+            maxNativeZoom: 20,
+            maxZoom: 24,
             attribution: '© IGN - PNOA'
           }),
           'esri_sat': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            maxZoom: 19,
+            maxNativeZoom: 19,
+            maxZoom: 24,
             attribution: '© Esri Satellite'
           })
         };
@@ -415,7 +434,8 @@ export default function App() {
 
         // Capa de Rotulación IGN (Toponimia / Calles)
         var ignLabelsLayer = L.tileLayer('https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetTile&version=1.0.0&layer=Rotulacion&style=default&format=image/png&TileMatrixSet=EPSG:3857&TileMatrix={z}&TileRow={y}&TileCol={x}', {
-          maxZoom: 20,
+          maxNativeZoom: 20,
+          maxZoom: 24,
           transparent: true
         });
 
@@ -430,7 +450,7 @@ export default function App() {
           format: 'image/png',
           transparent: true,
           version: '1.1.1',
-          maxZoom: 20,
+          maxZoom: 24,
           opacity: catastroOpacity
         }).addTo(map);
 
@@ -442,7 +462,7 @@ export default function App() {
               format: 'image/png',
               transparent: true,
               version: '1.1.1',
-              maxZoom: 20,
+              maxZoom: 24,
               opacity: catastroOpacity
             }).addTo(map);
           }
@@ -450,11 +470,70 @@ export default function App() {
 
         var currentMarker = null;
 
-        // --- Sistema de Medición ---
+        // --- Sistema de Medición y Ajuste Magnético (Snapping) ---
         var measureMode = null; // null | 'distance' | 'area'
+        var snapEnabled = true;
+        var cachedParcelVertices = []; // Array of L.latLng
         var measurePoints = [];
         var measureMarkers = [];
         var measureLineOrPolygon = null;
+
+        function addCachedVertices(verts) {
+          if (!Array.isArray(verts)) return;
+          for (var i = 0; i < verts.length; i++) {
+            var v = verts[i];
+            var lat = Array.isArray(v) ? v[0] : (v.lat || v.latitude);
+            var lon = Array.isArray(v) ? v[1] : (v.lng || v.lon || v.longitude);
+            if (typeof lat === 'number' && typeof lon === 'number' && !isNaN(lat) && !isNaN(lon)) {
+              var ll = L.latLng(lat, lon);
+              var exists = false;
+              for (var j = 0; j < cachedParcelVertices.length; j++) {
+                if (cachedParcelVertices[j].distanceTo(ll) < 0.2) {
+                  exists = true;
+                  break;
+                }
+              }
+              if (!exists) {
+                cachedParcelVertices.push(ll);
+              }
+            }
+          }
+        }
+
+        function findNearestVertex(clickLatLng, tolerancePixels) {
+          if (!snapEnabled || cachedParcelVertices.length === 0) return null;
+          var clickPt = map.latLngToContainerPoint(clickLatLng);
+          var bestVertex = null;
+          var minPixelDist = Infinity;
+
+          for (var i = 0; i < cachedParcelVertices.length; i++) {
+            var vLL = cachedParcelVertices[i];
+            var vPt = map.latLngToContainerPoint(vLL);
+            var dPix = clickPt.distanceTo(vPt);
+            var dMeters = clickLatLng.distanceTo(vLL);
+
+            if (dPix <= tolerancePixels && dMeters <= 35) {
+              if (dPix < minPixelDist) {
+                minPixelDist = dPix;
+                bestVertex = vLL;
+              }
+            }
+          }
+          return bestVertex;
+        }
+
+        function triggerSnapVisual(latlng) {
+          var snapRing = L.circleMarker(latlng, {
+            radius: 13,
+            color: '#10b981',
+            weight: 3,
+            fillColor: '#34d399',
+            fillOpacity: 0.5
+          }).addTo(map);
+          setTimeout(function() {
+            try { map.removeLayer(snapRing); } catch(e) {}
+          }, 700);
+        }
 
         function computePolygonArea(latlngs) {
           if (!latlngs || latlngs.length < 3) return 0;
@@ -473,7 +552,7 @@ export default function App() {
           return area;
         }
 
-        function updateMeasureGraphics() {
+        function updateMeasureGraphics(wasSnapped) {
           // Limpiar marcadores y trazados anteriores
           measureMarkers.forEach(function(m) { map.removeLayer(m); });
           measureMarkers = [];
@@ -483,7 +562,7 @@ export default function App() {
           }
 
           if (measurePoints.length === 0) {
-            notifyRNMeasureUpdate(0, 0, 0, 0);
+            notifyRNMeasureUpdate(0, 0, 0, 0, false);
             return;
           }
 
@@ -517,7 +596,7 @@ export default function App() {
                 opacity: 0.95
               }).addTo(map);
             }
-            notifyRNMeasureUpdate(totalDistance, 0, 0, measurePoints.length);
+            notifyRNMeasureUpdate(totalDistance, 0, 0, measurePoints.length, wasSnapped);
           } else if (measureMode === 'area') {
             if (measurePoints.length >= 3) {
               totalArea = computePolygonArea(measurePoints);
@@ -540,25 +619,26 @@ export default function App() {
                 opacity: 0.8
               }).addTo(map);
             }
-            notifyRNMeasureUpdate(totalPerimeter, totalArea, totalPerimeter, measurePoints.length);
+            notifyRNMeasureUpdate(totalPerimeter, totalArea, totalPerimeter, measurePoints.length, wasSnapped);
           }
         }
 
-        function notifyRNMeasureUpdate(dist, area, perim, count) {
+        function notifyRNMeasureUpdate(dist, area, perim, count, snapped) {
           try {
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'MEASURE_UPDATE',
               distance: dist,
               area: area,
               perimeter: perim,
-              pointsCount: count
+              pointsCount: count,
+              snapped: !!snapped
             }));
           } catch(e) {}
         }
 
         function clearAllMeasure() {
           measurePoints = [];
-          updateMeasureGraphics();
+          updateMeasureGraphics(false);
         }
 
         // --- Manejador de Mensajes desde React Native ---
@@ -572,7 +652,7 @@ export default function App() {
               currentWMSLayers = data.wmsLayers;
               refreshCatastroLayer();
             } else if (data.type === 'MOVE_TO') {
-              map.setView([data.lat, data.lon], 19);
+              map.setView([data.lat, data.lon], Math.min(Math.max(map.getZoom(), 19), 24));
               if (currentMarker) map.removeLayer(currentMarker);
               currentMarker = L.marker([data.lat, data.lon]).addTo(map);
               if (data.ref && data.ref !== 'Sin edificio en el centro de la calle') {
@@ -600,10 +680,16 @@ export default function App() {
             } else if (data.type === 'SET_MEASURE_MODE') {
               measureMode = data.mode;
               clearAllMeasure();
+            } else if (data.type === 'SET_SNAP_ENABLED') {
+              snapEnabled = !!data.enabled;
+            } else if (data.type === 'REGISTER_PARCEL_VERTICES') {
+              addCachedVertices(data.vertices);
+            } else if (data.type === 'CLEAR_PARCEL_VERTICES') {
+              cachedParcelVertices = [];
             } else if (data.type === 'MEASURE_UNDO') {
               if (measurePoints.length > 0) {
                 measurePoints.pop();
-                updateMeasureGraphics();
+                updateMeasureGraphics(false);
               }
             } else if (data.type === 'MEASURE_CLEAR') {
               clearAllMeasure();
@@ -616,8 +702,25 @@ export default function App() {
 
         map.on('click', function(e) {
           if (measureMode) {
-            measurePoints.push(e.latlng);
-            updateMeasureGraphics();
+            var targetPoint = e.latlng;
+            var wasSnapped = false;
+            if (snapEnabled) {
+              var nearest = findNearestVertex(e.latlng, 28);
+              if (nearest) {
+                targetPoint = nearest;
+                wasSnapped = true;
+                triggerSnapVisual(nearest);
+              }
+            }
+            measurePoints.push(targetPoint);
+            updateMeasureGraphics(wasSnapped);
+
+            // Consultar geometría de parcela en segundo plano para alimentar el imán
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'MEASURE_TAP_GEOQUERY',
+              lat: e.latlng.lat,
+              lon: e.latlng.lng
+            }));
           } else {
             if (currentMarker) map.removeLayer(currentMarker);
             currentMarker = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map);
@@ -661,6 +764,18 @@ export default function App() {
       const data = await cadastreService.fetchFullParcelDetails(refCat, lat, lon, targetRegion);
       setSubparcels(data.subparcels || []);
       setParcelDetails(data.parcelDetails);
+
+      // Alimentar el sistema de imán con los vértices oficiales de la parcela
+      cadastreService.fetchParcelGeometry(refCat, lat, lon, targetRegion)
+        .then((verts) => {
+          if (verts && verts.length > 0) {
+            webViewRef.current?.postMessage(JSON.stringify({
+              type: 'REGISTER_PARCEL_VERTICES',
+              vertices: verts
+            }));
+          }
+        })
+        .catch(() => {});
     } catch (err) {
       setParcelDetails({
         refCat,
@@ -1119,6 +1234,12 @@ export default function App() {
                 </Text>
               </View>
             )}
+
+            {measureStats.snapped && (
+              <View style={styles.snapBadge}>
+                <Text style={styles.snapBadgeText}>🧲 Vértice ajustado a esquina oficial</Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.measureActionsRow}>
@@ -1128,6 +1249,15 @@ export default function App() {
               disabled={measureStats.pointsCount === 0}
             >
               <Text style={styles.measureActionBtnText}>↩ Deshacer</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.measureActionBtn, snapEnabled ? styles.measureActionBtnSnapActive : styles.measureActionBtnSnapInactive]}
+              onPress={toggleSnap}
+            >
+              <Text style={[styles.measureActionBtnText, snapEnabled && { color: '#00875a', fontWeight: 'bold' }]}>
+                {snapEnabled ? '🧲 Imán: SÍ' : '🧲 Imán: NO'}
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1157,8 +1287,22 @@ export default function App() {
                 distance: data.distance || 0,
                 area: data.area || 0,
                 perimeter: data.perimeter || 0,
-                pointsCount: data.pointsCount || 0
+                pointsCount: data.pointsCount || 0,
+                snapped: !!data.snapped
               });
+            } else if (data.type === 'MEASURE_TAP_GEOQUERY') {
+              if (snapEnabled) {
+                cadastreService.fetchParcelGeometry(null, data.lat, data.lon, selectedRegion)
+                  .then((vertices) => {
+                    if (vertices && vertices.length > 0) {
+                      webViewRef.current?.postMessage(JSON.stringify({
+                        type: 'REGISTER_PARCEL_VERTICES',
+                        vertices: vertices
+                      }));
+                    }
+                  })
+                  .catch(() => {});
+              }
             }
           } catch (err) {}
         }}
@@ -1637,6 +1781,29 @@ const styles = StyleSheet.create({
   measureActionBtnDanger: {
     backgroundColor: '#fff5f5',
     borderColor: '#f0d0d0'
+  },
+  measureActionBtnSnapActive: {
+    backgroundColor: '#e6f7ef',
+    borderColor: '#10b981',
+    borderWidth: 1.5
+  },
+  measureActionBtnSnapInactive: {
+    backgroundColor: '#f8f8f8',
+    borderColor: '#ddd'
+  },
+  snapBadge: {
+    marginTop: 6,
+    backgroundColor: '#ecfdf5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#a7f3d0'
+  },
+  snapBadgeText: {
+    fontSize: 10.5,
+    color: '#047857',
+    fontWeight: 'bold'
   },
   measureActionBtnText: {
     fontSize: 12,

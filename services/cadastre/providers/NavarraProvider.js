@@ -352,6 +352,38 @@ export class NavarraProvider {
   }
 
   /**
+   * Obtiene la geometría oficial (vértices [lat, lon]) de la parcela mediante IDENA WFS
+   */
+  async fetchParcelGeometry(refCat, lat, lon) {
+    try {
+      if (!lat || !lon) return [];
+      let geojson = await this._queryIDENAWFS('IDENA:CATAST_Pol_ParcelaUrba', `INTERSECTS(the_geom, POINT(${lon} ${lat}))`);
+      if (!geojson?.features || geojson.features.length === 0) {
+        geojson = await this._queryIDENAWFS('IDENA:CATAST_Pol_ParcelaRusti', `INTERSECTS(the_geom, POINT(${lon} ${lat}))`);
+      }
+      if (!geojson?.features || geojson.features.length === 0) {
+        geojson = await this._queryIDENAWFS('IDENA:CATAST_Pol_ParcelaMixta', `INTERSECTS(the_geom, POINT(${lon} ${lat}))`);
+      }
+      if (!geojson?.features || geojson.features.length === 0) return [];
+      
+      const geom = geojson.features[0].geometry;
+      const vertices = [];
+      const extractRings = (coords) => {
+        if (!Array.isArray(coords)) return;
+        if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+          vertices.push([coords[1], coords[0]]); // [lat, lon]
+        } else {
+          coords.forEach(extractRings);
+        }
+      };
+      extractRings(geom.coordinates);
+      return vertices;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /**
    * Obtiene la URL del WMS para esta región
    */
   getWMSUrl() {
@@ -365,3 +397,4 @@ export class NavarraProvider {
     return 'catastro'; // Capa general que engloba rústica, urbana, etc.
   }
 }
+

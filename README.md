@@ -10,6 +10,14 @@
 
 ## 🌟 Características Principales
 
+* 🔍 **Ultra-Zoom Quirúrgico (Hasta Nivel 24):**
+  - Acercamiento ultra-detallado con resolución inferior a **$1\text{ cm/píxel}$** ($1\text{ m} > 140\text{ px}$).
+  - Sobremuestreo suave de ortofotos aéreas PNOA y mapas de satélite sin cortes ni cuadros grises.
+  - Renderizado vectorial dinámico del Catastro WMS nítido y perfecto a cualquier nivel de zoom.
+* 🧲 **Ajuste Magnético a Esquinas (*Snapping*):**
+  - Atracción magnética inteligente a las esquinas y vértices oficiales de las parcelas al tocar la pantalla.
+  - Integración directa con las geometrías de la **Sede Electrónica del Catastro (INSPIRE WFS)** y **Navarra (IDENA WFS)**.
+  - Botón **🧲 Imán: SÍ / NO** en la barra de herramientas para medir con enganche automático o trazo libre.
 * 🗺️ **Selector Avanzado de Capas y Mapas Base:**
   - **Mapas Base Conmutables:** Callejero (*OpenStreetMap*), Topográfico Oficial (*IGN Base*), Ortofoto Aérea de máxima resolución (*IGN PNOA*) y Satélite (*Esri World Imagery*).
   - **Capa Catastral Unificada ("Catastro"):** Conmutación automática inteligente entre la Sede Estatal (OVC) y Navarra (IDENA), con control de visibilidad On/Off y regulación de opacidad (25%, 50%, 75%, 100%) para superponer lindes sobre fotos aéreas.

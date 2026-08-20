@@ -45,6 +45,10 @@ class CadastreService {
     return this.getProvider(region).openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode);
   }
 
+  async fetchParcelGeometry(refCat, lat, lon, region = 'ES') {
+    return this.getProvider(region).fetchParcelGeometry(refCat, lat, lon);
+  }
+
   detectRegionFromCoords(lat, lon, addressText = '') {
     if (addressText) {
       const lower = addressText.toLowerCase();
