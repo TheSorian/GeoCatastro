@@ -235,15 +235,18 @@ export class StateProvider {
       const url = `https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetParcel&srsname=EPSG:4326&REFCAT=${clean14}`;
       const response = await fetch(url);
       const xml = await response.text();
-      const match = xml.match(/<gml:posList[^>]*>([^<]+)<\/gml:posList>/i);
-      if (!match || !match[1]) return [];
-      const coords = match[1].trim().split(/\s+/).map(Number);
+      const matches = [...xml.matchAll(/<gml:posList[^>]*>([^<]+)<\/gml:posList>/gi)];
+      if (!matches || matches.length === 0) return [];
       const vertices = [];
-      for (let i = 0; i < coords.length; i += 2) {
-        const vLat = coords[i];
-        const vLon = coords[i + 1];
-        if (!isNaN(vLat) && !isNaN(vLon)) {
-          vertices.push([vLat, vLon]);
+      for (const m of matches) {
+        if (!m[1]) continue;
+        const coords = m[1].trim().split(/\s+/).map(Number);
+        for (let i = 0; i < coords.length; i += 2) {
+          const vLat = coords[i];
+          const vLon = coords[i + 1];
+          if (!isNaN(vLat) && !isNaN(vLon)) {
+            vertices.push([vLat, vLon]);
+          }
         }
       }
       return vertices;
