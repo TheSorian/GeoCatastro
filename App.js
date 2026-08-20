@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
+import * as Location from 'expo-location';
 import { cadastreService } from './services/cadastre/CadastreService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
@@ -121,12 +122,61 @@ export default function App() {
 
   const CURRENT_VERSION = appConfig.expo.version;
 
-  // Cargar búsquedas recientes y comprobar actualizaciones en GitHub al iniciar
+  // Cargar búsquedas recientes, comprobar actualizaciones y obtener ubicación inicial
   useEffect(() => {
     loadRecentSearches();
     checkAppUpdate();
+    getUserLocation(true);
     SplashScreen.hideAsync().catch(() => {});
   }, []);
+
+  const getUserLocation = async (isInitial = false) => {
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        if (!isInitial) {
+          Alert.alert(
+            'Permiso Denegado',
+            'Necesitamos permiso de ubicación para situarte en el mapa y cargar el catastro correspondiente.'
+          );
+        }
+        return;
+      }
+
+      setLoading(true);
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced
+      });
+
+      if (loc && loc.coords) {
+        const { latitude: lat, longitude: lon } = loc.coords;
+        const region = cadastreService.detectRegionFromCoords(lat, lon);
+
+        if (region !== selectedRegion) {
+          setSelectedRegion(region);
+          webViewRef.current?.postMessage(JSON.stringify({
+            type: 'CHANGE_REGION',
+            wmsUrl: cadastreService.getWMSUrl(region),
+            wmsLayers: cadastreService.getWMSLayers(region)
+          }));
+        }
+
+        webViewRef.current?.postMessage(JSON.stringify({
+          type: 'MOVE_TO',
+          lat,
+          lon
+        }));
+
+        await fetchParcelByCoords(lat, lon, region);
+      }
+    } catch (e) {
+      if (!isInitial) {
+        Alert.alert('Error de ubicación', 'No se pudo obtener la ubicación actual.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const checkAppUpdate = async () => {
     try {
@@ -742,6 +792,14 @@ export default function App() {
         domStorageEnabled={true}
       />
 
+      {/* Botón Flotante de Mi Ubicación GPS */}
+      <TouchableOpacity
+        style={[styles.gpsBtn, parcelDetails && { bottom: SCREEN_HEIGHT * 0.35 }]}
+        onPress={() => getUserLocation(false)}
+      >
+        <Text style={styles.gpsBtnText}>🎯 Mi Ubicación</Text>
+      </TouchableOpacity>
+
       {/* Tarjeta de Información de la Parcela e Inmuebles */}
       {parcelDetails && (
         <Animated.View 
@@ -1102,4 +1160,24 @@ const styles = StyleSheet.create({
   btnMiniFichaText: { fontSize: 10, color: 'white', fontWeight: 'bold' },
   copyBtnMini: { backgroundColor: '#eef', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
   copyBtnMiniText: { fontSize: 10, color: '#0066cc', fontWeight: 'bold' },
+  gpsBtn: {
+    position: 'absolute',
+    right: 14,
+    bottom: 25,
+    backgroundColor: '#0066cc',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 25,
+    zIndex: 95,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  gpsBtnText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
 });
