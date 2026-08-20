@@ -16,7 +16,8 @@ import {
   Animated,
   PanResponder,
   Modal,
-  Switch
+  Switch,
+  Linking
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
@@ -218,8 +219,16 @@ export default function App() {
             {
               text: '📲 Actualizar Ahora',
               onPress: async () => {
-                if (downloadUrl) {
-                  await WebBrowser.openBrowserAsync(downloadUrl);
+                try {
+                  if (downloadUrl) {
+                    await Linking.openURL(downloadUrl);
+                  } else if (data?.html_url) {
+                    await Linking.openURL(data.html_url);
+                  }
+                } catch (err) {
+                  if (data?.html_url) {
+                    await Linking.openURL(data.html_url);
+                  }
                 }
               }
             }
