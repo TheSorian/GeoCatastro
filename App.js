@@ -14,7 +14,9 @@ import {
   Clipboard,
   Dimensions,
   Animated,
-  PanResponder
+  PanResponder,
+  Modal,
+  Switch
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
@@ -42,6 +44,22 @@ export default function App() {
   const [selectedSubparcel, setSelectedSubparcel] = useState(null);
   const [selectedRegion, setSelectedRegion] = useState('ES');
   const [subparcelFilter, setSubparcelFilter] = useState('');
+
+  // Estados del Gestor de Capas
+  const [showLayersModal, setShowLayersModal] = useState(false);
+  const [activeBaseLayer, setActiveBaseLayer] = useState('osm'); // 'osm' | 'ign_base' | 'ign_pnoa' | 'esri_sat'
+  const [catastroVisible, setCatastroVisible] = useState(true);
+  const [catastroOpacity, setCatastroOpacity] = useState(0.85);
+  const [ignLabelsVisible, setIgnLabelsVisible] = useState(false);
+
+  // Estados de la Herramienta de Medición
+  const [measureMode, setMeasureMode] = useState(null); // null | 'distance' | 'area'
+  const [measureStats, setMeasureStats] = useState({
+    distance: 0,
+    area: 0,
+    perimeter: 0,
+    pointsCount: 0
+  });
 
   const webViewRef = useRef(null);
   const typingTimer = useRef(null);
@@ -167,7 +185,9 @@ export default function App() {
           lon
         }));
 
-        await fetchParcelByCoords(lat, lon, region);
+        if (!measureMode) {
+          await fetchParcelByCoords(lat, lon, region);
+        }
       }
     } catch (e) {
       if (!isInitial) {
@@ -258,7 +278,90 @@ export default function App() {
     } catch (e) {}
   };
 
-  // HTML del visor Leaflet con listener compatible Android/iOS
+  // --- Funciones de Gestión de Capas ---
+  const handleSelectBaseLayer = (layerKey) => {
+    setActiveBaseLayer(layerKey);
+    webViewRef.current?.postMessage(JSON.stringify({
+      type: 'SET_BASE_LAYER',
+      layer: layerKey
+    }));
+  };
+
+  const handleToggleCatastro = (value) => {
+    setCatastroVisible(value);
+    webViewRef.current?.postMessage(JSON.stringify({
+      type: 'SET_CATASTRO_VISIBILITY',
+      visible: value
+    }));
+  };
+
+  const handleSetCatastroOpacity = (opacityVal) => {
+    setCatastroOpacity(opacityVal);
+    webViewRef.current?.postMessage(JSON.stringify({
+      type: 'SET_CATASTRO_OPACITY',
+      opacity: opacityVal
+    }));
+  };
+
+  const handleToggleIgnLabels = (value) => {
+    setIgnLabelsVisible(value);
+    webViewRef.current?.postMessage(JSON.stringify({
+      type: 'SET_IGN_LABELS_VISIBILITY',
+      visible: value
+    }));
+  };
+
+  // --- Funciones de Medición ---
+  const startMeasureMode = (mode) => {
+    setParcelDetails(null);
+    setMeasureMode(mode);
+    setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0 });
+    webViewRef.current?.postMessage(JSON.stringify({
+      type: 'SET_MEASURE_MODE',
+      mode: mode
+    }));
+  };
+
+  const exitMeasureMode = () => {
+    setMeasureMode(null);
+    setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0 });
+    webViewRef.current?.postMessage(JSON.stringify({
+      type: 'SET_MEASURE_MODE',
+      mode: null
+    }));
+  };
+
+  const undoMeasurePoint = () => {
+    webViewRef.current?.postMessage(JSON.stringify({
+      type: 'MEASURE_UNDO'
+    }));
+  };
+
+  const clearMeasurePoints = () => {
+    setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0 });
+    webViewRef.current?.postMessage(JSON.stringify({
+      type: 'MEASURE_CLEAR'
+    }));
+  };
+
+  const formatDistance = (meters) => {
+    if (!meters || meters === 0) return '0 m';
+    if (meters >= 1000) {
+      return `${(meters / 1000).toFixed(2)} km`;
+    }
+    return `${meters.toFixed(1)} m`;
+  };
+
+  const formatArea = (sqMeters) => {
+    if (!sqMeters || sqMeters === 0) return '0 m²';
+    if (sqMeters >= 10000) {
+      const ha = (sqMeters / 10000).toFixed(2);
+      return `${ha} ha (${Math.round(sqMeters).toLocaleString('es-ES')} m²)`;
+    }
+    return `${Math.round(sqMeters).toLocaleString('es-ES')} m²`;
+  };
+
+  // HTML del visor Leaflet con Capas IGN, Esri, Medición y WMS Catastro
   const leafletHTML = `
     <!DOCTYPE html>
     <html>
@@ -269,7 +372,7 @@ export default function App() {
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
       <style>
         body, html, #map { width: 100%; height: 100%; margin: 0; padding: 0; background-color: #e5e3df; }
-        .leaflet-control-attribution { font-size: 9px; }
+        .leaflet-control-attribution { font-size: 8px; background: rgba(255,255,255,0.7) !important; }
       </style>
     </head>
     <body>
@@ -278,13 +381,40 @@ export default function App() {
         var map = L.map('map', { zoomControl: false }).setView([40.4168, -3.7038], 16);
         L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19,
-          attribution: '© OpenStreetMap'
-        }).addTo(map);
+        // --- Definición de Capas Base ---
+        var baseLayers = {
+          'osm': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+          }),
+          'ign_base': L.tileLayer('https://www.ign.es/wmts/ign-base?service=WMTS&request=GetTile&version=1.0.0&layer=IGNBaseTodo&style=default&format=image/jpeg&TileMatrixSet=EPSG:3857&TileMatrix={z}&TileRow={y}&TileCol={x}', {
+            maxZoom: 19,
+            attribution: '© IGN España'
+          }),
+          'ign_pnoa': L.tileLayer('https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetTile&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&format=image/jpeg&TileMatrixSet=EPSG:3857&TileMatrix={z}&TileRow={y}&TileCol={x}', {
+            maxZoom: 20,
+            attribution: '© IGN - PNOA'
+          }),
+          'esri_sat': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 19,
+            attribution: '© Esri Satellite'
+          })
+        };
 
+        var currentBaseKey = 'osm';
+        baseLayers[currentBaseKey].addTo(map);
+
+        // Capa de Rotulación IGN (Toponimia / Calles)
+        var ignLabelsLayer = L.tileLayer('https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetTile&version=1.0.0&layer=Rotulacion&style=default&format=image/png&TileMatrixSet=EPSG:3857&TileMatrix={z}&TileRow={y}&TileCol={x}', {
+          maxZoom: 20,
+          transparent: true
+        });
+
+        // --- Capa WMS Catastral Unificada (Nacional / Navarra) ---
         var currentWMSUrl = 'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx';
         var currentWMSLayers = 'catastro';
+        var catastroVisible = true;
+        var catastroOpacity = 0.85;
 
         var catastroWMS = L.tileLayer.wms(currentWMSUrl, {
           layers: currentWMSLayers,
@@ -292,27 +422,146 @@ export default function App() {
           transparent: true,
           version: '1.1.1',
           maxZoom: 20,
-          opacity: 0.85
+          opacity: catastroOpacity
         }).addTo(map);
+
+        function refreshCatastroLayer() {
+          if (catastroWMS) map.removeLayer(catastroWMS);
+          if (catastroVisible) {
+            catastroWMS = L.tileLayer.wms(currentWMSUrl, {
+              layers: currentWMSLayers,
+              format: 'image/png',
+              transparent: true,
+              version: '1.1.1',
+              maxZoom: 20,
+              opacity: catastroOpacity
+            }).addTo(map);
+          }
+        }
 
         var currentMarker = null;
 
+        // --- Sistema de Medición ---
+        var measureMode = null; // null | 'distance' | 'area'
+        var measurePoints = [];
+        var measureMarkers = [];
+        var measureLineOrPolygon = null;
+
+        function computePolygonArea(latlngs) {
+          if (!latlngs || latlngs.length < 3) return 0;
+          var radius = 6378137; // Radio WGS84 en metros
+          var area = 0;
+          var len = latlngs.length;
+          for (var i = 0; i < len; i++) {
+            var p1 = latlngs[i];
+            var p2 = latlngs[(i + 1) % len];
+            var dLambda = (p2.lng - p1.lng) * Math.PI / 180;
+            var phi1 = p1.lat * Math.PI / 180;
+            var phi2 = p2.lat * Math.PI / 180;
+            area += dLambda * (2 + Math.sin(phi1) + Math.sin(phi2));
+          }
+          area = Math.abs(area * radius * radius / 4.0);
+          return area;
+        }
+
+        function updateMeasureGraphics() {
+          // Limpiar marcadores y trazados anteriores
+          measureMarkers.forEach(function(m) { map.removeLayer(m); });
+          measureMarkers = [];
+          if (measureLineOrPolygon) {
+            map.removeLayer(measureLineOrPolygon);
+            measureLineOrPolygon = null;
+          }
+
+          if (measurePoints.length === 0) {
+            notifyRNMeasureUpdate(0, 0, 0, 0);
+            return;
+          }
+
+          var totalDistance = 0;
+          var totalArea = 0;
+          var totalPerimeter = 0;
+
+          // Dibujar vértices
+          for (var i = 0; i < measurePoints.length; i++) {
+            var pt = measurePoints[i];
+            var isLast = (i === measurePoints.length - 1);
+            var marker = L.circleMarker([pt.lat, pt.lng], {
+              radius: isLast ? 7 : 5,
+              color: '#ffffff',
+              weight: 2,
+              fillColor: measureMode === 'distance' ? '#e63946' : '#0066cc',
+              fillOpacity: 1
+            }).addTo(map);
+            measureMarkers.push(marker);
+          }
+
+          if (measureMode === 'distance') {
+            for (var j = 0; j < measurePoints.length - 1; j++) {
+              totalDistance += measurePoints[j].distanceTo(measurePoints[j + 1]);
+            }
+            if (measurePoints.length >= 2) {
+              measureLineOrPolygon = L.polyline(measurePoints, {
+                color: '#e63946',
+                weight: 3.5,
+                dashArray: '6, 6',
+                opacity: 0.95
+              }).addTo(map);
+            }
+            notifyRNMeasureUpdate(totalDistance, 0, 0, measurePoints.length);
+          } else if (measureMode === 'area') {
+            if (measurePoints.length >= 3) {
+              totalArea = computePolygonArea(measurePoints);
+              for (var k = 0; k < measurePoints.length; k++) {
+                totalPerimeter += measurePoints[k].distanceTo(measurePoints[(k + 1) % measurePoints.length]);
+              }
+              measureLineOrPolygon = L.polygon(measurePoints, {
+                color: '#0066cc',
+                weight: 2.5,
+                fillColor: '#0066cc',
+                fillOpacity: 0.3,
+                dashArray: '4, 4'
+              }).addTo(map);
+            } else if (measurePoints.length === 2) {
+              totalPerimeter = measurePoints[0].distanceTo(measurePoints[1]);
+              measureLineOrPolygon = L.polyline(measurePoints, {
+                color: '#0066cc',
+                weight: 2.5,
+                dashArray: '4, 4',
+                opacity: 0.8
+              }).addTo(map);
+            }
+            notifyRNMeasureUpdate(totalPerimeter, totalArea, totalPerimeter, measurePoints.length);
+          }
+        }
+
+        function notifyRNMeasureUpdate(dist, area, perim, count) {
+          try {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'MEASURE_UPDATE',
+              distance: dist,
+              area: area,
+              perimeter: perim,
+              pointsCount: count
+            }));
+          } catch(e) {}
+        }
+
+        function clearAllMeasure() {
+          measurePoints = [];
+          updateMeasureGraphics();
+        }
+
+        // --- Manejador de Mensajes desde React Native ---
         function handleRNMessage(event) {
           try {
             var rawData = event.data;
             var data = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+            
             if (data.type === 'CHANGE_REGION') {
-              if (catastroWMS) map.removeLayer(catastroWMS);
               currentWMSUrl = data.wmsUrl;
               currentWMSLayers = data.wmsLayers;
-              catastroWMS = L.tileLayer.wms(currentWMSUrl, {
-                layers: currentWMSLayers,
-                format: 'image/png',
-                transparent: true,
-                version: '1.1.1',
-                maxZoom: 20,
-                opacity: 0.85
-              }).addTo(map);
+              refreshCatastroLayer();
             } else if (data.type === 'MOVE_TO') {
               map.setView([data.lat, data.lon], 19);
               if (currentMarker) map.removeLayer(currentMarker);
@@ -320,6 +569,35 @@ export default function App() {
               if (data.ref && data.ref !== 'Sin edificio en el centro de la calle') {
                 currentMarker.bindPopup('<b>Ref. Catastral:</b><br>' + data.ref).openPopup();
               }
+            } else if (data.type === 'SET_BASE_LAYER') {
+              if (baseLayers[currentBaseKey]) map.removeLayer(baseLayers[currentBaseKey]);
+              currentBaseKey = data.layer;
+              if (baseLayers[currentBaseKey]) {
+                baseLayers[currentBaseKey].addTo(map);
+                baseLayers[currentBaseKey].bringToBack();
+              }
+            } else if (data.type === 'SET_CATASTRO_VISIBILITY') {
+              catastroVisible = data.visible;
+              refreshCatastroLayer();
+            } else if (data.type === 'SET_CATASTRO_OPACITY') {
+              catastroOpacity = data.opacity;
+              if (catastroWMS) catastroWMS.setOpacity(catastroOpacity);
+            } else if (data.type === 'SET_IGN_LABELS_VISIBILITY') {
+              if (data.visible) {
+                ignLabelsLayer.addTo(map);
+              } else {
+                map.removeLayer(ignLabelsLayer);
+              }
+            } else if (data.type === 'SET_MEASURE_MODE') {
+              measureMode = data.mode;
+              clearAllMeasure();
+            } else if (data.type === 'MEASURE_UNDO') {
+              if (measurePoints.length > 0) {
+                measurePoints.pop();
+                updateMeasureGraphics();
+              }
+            } else if (data.type === 'MEASURE_CLEAR') {
+              clearAllMeasure();
             }
           } catch(e) {}
         }
@@ -328,14 +606,19 @@ export default function App() {
         document.addEventListener('message', handleRNMessage);
 
         map.on('click', function(e) {
-          if (currentMarker) map.removeLayer(currentMarker);
-          currentMarker = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map);
-          
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'MAP_CLICK',
-            lat: e.latlng.lat,
-            lon: e.latlng.lng
-          }));
+          if (measureMode) {
+            measurePoints.push(e.latlng);
+            updateMeasureGraphics();
+          } else {
+            if (currentMarker) map.removeLayer(currentMarker);
+            currentMarker = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map);
+            
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'MAP_CLICK',
+              lat: e.latlng.lat,
+              lon: e.latlng.lng
+            }));
+          }
         });
       </script>
     </body>
@@ -668,115 +951,188 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Buscador Superior con Historial y Botón X */}
-      <View style={styles.searchContainer}>
-        <Text style={styles.appTitle}>🏛️ GeoCatastro</Text>
-        
-        <View style={styles.inputRow}>
-          <View style={styles.inputBoxContainer}>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Dirección, Calle y Nº, Ref. Catastral..."
-              placeholderTextColor="#888"
-              value={query}
-              onChangeText={handleSearchTextChange}
-              onFocus={() => {
-                if (query.trim().length === 0 && recentSearches.length > 0) {
-                  setShowRecent(true);
-                }
-              }}
-              onSubmitEditing={executeSearch}
-              returnKeyType="search"
-            />
-            {query.length > 0 && (
-              <TouchableOpacity style={styles.clearIconBtn} onPress={clearInputText}>
-                <Text style={styles.clearIconText}>✕</Text>
+      {/* 1. Barra Superior: Buscador Normal O Barra de Medición si está activa */}
+      {!measureMode ? (
+        <View style={styles.searchContainer}>
+          <Text style={styles.appTitle}>🏛️ GeoCatastro</Text>
+          
+          <View style={styles.inputRow}>
+            <View style={styles.inputBoxContainer}>
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Dirección, Calle y Nº, Ref. Catastral..."
+                placeholderTextColor="#888"
+                value={query}
+                onChangeText={handleSearchTextChange}
+                onFocus={() => {
+                  if (query.trim().length === 0 && recentSearches.length > 0) {
+                    setShowRecent(true);
+                  }
+                }}
+                onSubmitEditing={executeSearch}
+                returnKeyType="search"
+              />
+              {query.length > 0 && (
+                <TouchableOpacity style={styles.clearIconBtn} onPress={clearInputText}>
+                  <Text style={styles.clearIconText}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <TouchableOpacity style={styles.searchButton} onPress={executeSearch}>
+              <Text style={styles.searchButtonText}>Buscar</Text>
+            </TouchableOpacity>
+          </View>
+
+          {isRCInput && (
+            <View style={styles.regionSelectorRow}>
+              <TouchableOpacity 
+                style={[styles.regionBtn, selectedRegion === 'ES' && styles.regionBtnActive]}
+                onPress={() => changeRegion('ES')}
+              >
+                <Text style={[styles.regionBtnText, selectedRegion === 'ES' && styles.regionBtnTextActive]}>🇪🇸 Estado</Text>
               </TouchableOpacity>
-            )}
-          </View>
-
-          <TouchableOpacity style={styles.searchButton} onPress={executeSearch}>
-            <Text style={styles.searchButtonText}>Buscar</Text>
-          </TouchableOpacity>
-        </View>
-
-        {isRCInput && (
-          <View style={styles.regionSelectorRow}>
-            <TouchableOpacity 
-              style={[styles.regionBtn, selectedRegion === 'ES' && styles.regionBtnActive]}
-              onPress={() => changeRegion('ES')}
-            >
-              <Text style={[styles.regionBtnText, selectedRegion === 'ES' && styles.regionBtnTextActive]}>🇪🇸 Estado</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.regionBtn, selectedRegion === 'NA' && styles.regionBtnActive]}
-              onPress={() => changeRegion('NA')}
-            >
-              <Text style={[styles.regionBtnText, selectedRegion === 'NA' && styles.regionBtnTextActive]}>🔴 Navarra</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {loading && (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator size="small" color="#0066cc" />
-            <Text style={styles.loadingText}> Consultando Sede del Catastro...</Text>
-          </View>
-        )}
-
-        {/* Lista de Búsquedas Recientes */}
-        {showRecent && recentSearches.length > 0 && (
-          <View style={styles.recentContainer}>
-            <View style={styles.recentHeaderRow}>
-              <Text style={styles.recentHeaderText}>🕒 Búsquedas Recientes</Text>
-              <TouchableOpacity onPress={clearAllRecent}>
-                <Text style={styles.recentClearAllText}>Borrar historial</Text>
+              <TouchableOpacity 
+                style={[styles.regionBtn, selectedRegion === 'NA' && styles.regionBtnActive]}
+                onPress={() => changeRegion('NA')}
+              >
+                <Text style={[styles.regionBtnText, selectedRegion === 'NA' && styles.regionBtnTextActive]}>🔴 Navarra</Text>
               </TouchableOpacity>
             </View>
-            <ScrollView style={styles.recentScroll} keyboardShouldPersistTaps="handled">
-              {recentSearches.map((item, idx) => (
-                <View key={idx} style={styles.recentRowItem}>
-                  <TouchableOpacity
-                    style={{ flex: 1 }}
-                    onPress={() => {
-                      setQuery(item);
-                      setShowRecent(false);
-                      handleSearchTextChange(item);
-                    }}
-                  >
-                    <Text style={styles.recentItemText} numberOfLines={1}>🕒 {item}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={{ paddingLeft: 8 }}
-                    onPress={() => removeRecentSearch(item)}
-                  >
-                    <Text style={styles.recentDeleteBtn}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </ScrollView>
+          )}
+
+          {loading && (
+            <View style={styles.loadingBox}>
+              <ActivityIndicator size="small" color="#0066cc" />
+              <Text style={styles.loadingText}> Consultando Sede del Catastro...</Text>
+            </View>
+          )}
+
+          {/* Lista de Búsquedas Recientes */}
+          {showRecent && recentSearches.length > 0 && (
+            <View style={styles.recentContainer}>
+              <View style={styles.recentHeaderRow}>
+                <Text style={styles.recentHeaderText}>🕒 Búsquedas Recientes</Text>
+                <TouchableOpacity onPress={clearAllRecent}>
+                  <Text style={styles.recentClearAllText}>Borrar historial</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.recentScroll} keyboardShouldPersistTaps="handled">
+                {recentSearches.map((item, idx) => (
+                  <View key={idx} style={styles.recentRowItem}>
+                    <TouchableOpacity
+                      style={{ flex: 1 }}
+                      onPress={() => {
+                        setQuery(item);
+                        setShowRecent(false);
+                        handleSearchTextChange(item);
+                      }}
+                    >
+                      <Text style={styles.recentItemText} numberOfLines={1}>🕒 {item}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{ paddingLeft: 8 }}
+                      onPress={() => removeRecentSearch(item)}
+                    >
+                      <Text style={styles.recentDeleteBtn}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Lista de Sugerencias de Autocompletado */}
+          {suggestions.length > 0 && (
+            <FlatList
+              data={suggestions}
+              keyExtractor={(item, idx) => item.place_id ? item.place_id.toString() : idx.toString()}
+              style={styles.suggestionsList}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.suggestionItem} onPress={() => onSelectSuggestion(item)}>
+                  <Text numberOfLines={2} style={item.isRC ? styles.rcSuggestionText : styles.suggestionText}>
+                    {item.display_name}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
+          )}
+        </View>
+      ) : (
+        /* Panel Contextual de Medición Activa */
+        <View style={styles.measurePanel}>
+          <View style={styles.measureTabsRow}>
+            <TouchableOpacity
+              style={[styles.measureTab, measureMode === 'distance' && styles.measureTabActive]}
+              onPress={() => startMeasureMode('distance')}
+            >
+              <Text style={[styles.measureTabText, measureMode === 'distance' && styles.measureTabTextActive]}>
+                📏 Distancia
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.measureTab, measureMode === 'area' && styles.measureTabActive]}
+              onPress={() => startMeasureMode('area')}
+            >
+              <Text style={[styles.measureTabText, measureMode === 'area' && styles.measureTabTextActive]}>
+                📐 Área y Perímetro
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.measureExitBtn} onPress={exitMeasureMode}>
+              <Text style={styles.measureExitBtnText}>✕ Salir</Text>
+            </TouchableOpacity>
           </View>
-        )}
 
-        {/* Lista de Sugerencias de Autocompletado */}
-        {suggestions.length > 0 && (
-          <FlatList
-            data={suggestions}
-            keyExtractor={(item, idx) => item.place_id ? item.place_id.toString() : idx.toString()}
-            style={styles.suggestionsList}
-            keyboardShouldPersistTaps="handled"
-            renderItem={({ item }) => (
-              <TouchableOpacity style={styles.suggestionItem} onPress={() => onSelectSuggestion(item)}>
-                <Text numberOfLines={2} style={item.isRC ? styles.rcSuggestionText : styles.suggestionText}>
-                  {item.display_name}
+          <View style={styles.measureDisplayBox}>
+            {measureMode === 'distance' ? (
+              <View>
+                <Text style={styles.measureMainValue}>
+                  📏 {formatDistance(measureStats.distance)}
                 </Text>
-              </TouchableOpacity>
+                <Text style={styles.measureSubText}>
+                  {measureStats.pointsCount === 0
+                    ? 'Toca en el mapa para añadir puntos y medir'
+                    : `${measureStats.pointsCount} vértice(s) trazado(s)`}
+                </Text>
+              </View>
+            ) : (
+              <View>
+                <Text style={styles.measureMainValue}>
+                  📐 {formatArea(measureStats.area)}
+                </Text>
+                <Text style={styles.measureSubText}>
+                  {measureStats.pointsCount < 3
+                    ? 'Toca al menos 3 puntos en el mapa para cerrar el polígono'
+                    : `Perímetro: ${formatDistance(measureStats.perimeter)} | ${measureStats.pointsCount} vértices`}
+                </Text>
+              </View>
             )}
-          />
-        )}
-      </View>
+          </View>
 
-      {/* Mapa Interactivo Leaflet + WMS Catastro */}
+          <View style={styles.measureActionsRow}>
+            <TouchableOpacity
+              style={[styles.measureActionBtn, measureStats.pointsCount === 0 && styles.btnDisabled]}
+              onPress={undoMeasurePoint}
+              disabled={measureStats.pointsCount === 0}
+            >
+              <Text style={styles.measureActionBtnText}>↩ Deshacer</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.measureActionBtn, styles.measureActionBtnDanger, measureStats.pointsCount === 0 && styles.btnDisabled]}
+              onPress={clearMeasurePoints}
+              disabled={measureStats.pointsCount === 0}
+            >
+              <Text style={[styles.measureActionBtnText, { color: '#cc0000' }]}>🗑 Limpiar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* 2. Mapa Interactivo Leaflet + WMS Catastro / Capas IGN */}
       <WebView
         ref={webViewRef}
         originWhitelist={['*']}
@@ -785,23 +1141,177 @@ export default function App() {
         onMessage={(e) => {
           try {
             const data = JSON.parse(e.nativeEvent.data);
-            if (data.type === 'MAP_CLICK') fetchParcelByCoords(data.lat, data.lon);
+            if (data.type === 'MAP_CLICK') {
+              fetchParcelByCoords(data.lat, data.lon);
+            } else if (data.type === 'MEASURE_UPDATE') {
+              setMeasureStats({
+                distance: data.distance || 0,
+                area: data.area || 0,
+                perimeter: data.perimeter || 0,
+                pointsCount: data.pointsCount || 0
+              });
+            }
           } catch (err) {}
         }}
         javaScriptEnabled={true}
         domStorageEnabled={true}
       />
 
-      {/* Botón Flotante de Mi Ubicación GPS */}
-      <TouchableOpacity
-        style={[styles.gpsBtn, parcelDetails && { bottom: SCREEN_HEIGHT * 0.35 }]}
-        onPress={() => getUserLocation(false)}
-      >
-        <Text style={styles.gpsBtnText}>🎯 Mi Ubicación</Text>
-      </TouchableOpacity>
+      {/* 3. Botonera Flotante Lateral Derecha (Capas, Medir, GPS) */}
+      <View style={[styles.mapButtonsStack, parcelDetails && { bottom: SCREEN_HEIGHT * 0.38 }]}>
+        <TouchableOpacity
+          style={styles.floatingToolBtn}
+          onPress={() => setShowLayersModal(true)}
+        >
+          <Text style={styles.floatingToolIcon}>🥞</Text>
+          <Text style={styles.floatingToolLabel}>Capas</Text>
+        </TouchableOpacity>
 
-      {/* Tarjeta de Información de la Parcela e Inmuebles */}
-      {parcelDetails && (
+        <TouchableOpacity
+          style={[styles.floatingToolBtn, measureMode && styles.floatingToolBtnActive]}
+          onPress={() => {
+            if (measureMode) exitMeasureMode();
+            else startMeasureMode('distance');
+          }}
+        >
+          <Text style={styles.floatingToolIcon}>📏</Text>
+          <Text style={styles.floatingToolLabel}>{measureMode ? 'Midiendo' : 'Medir'}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.floatingGpsBtn}
+          onPress={() => getUserLocation(false)}
+        >
+          <Text style={styles.floatingGpsIcon}>🎯</Text>
+          <Text style={styles.floatingGpsLabel}>Ubicación</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 4. Modal / Panel de Gestión de Capas */}
+      <Modal
+        visible={showLayersModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowLayersModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.layersModalCard}>
+            <View style={styles.layersModalHeader}>
+              <Text style={styles.layersModalTitle}>🥞 Capas del Mapa</Text>
+              <TouchableOpacity onPress={() => setShowLayersModal(false)} style={styles.modalCloseBtn}>
+                <Text style={styles.modalCloseBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 420 }}>
+              {/* Sección 1: Mapa Base */}
+              <Text style={styles.layersSectionTitle}>MAPA BASE</Text>
+              <View style={styles.baseLayersGrid}>
+                <TouchableOpacity
+                  style={[styles.baseLayerCard, activeBaseLayer === 'osm' && styles.baseLayerCardActive]}
+                  onPress={() => handleSelectBaseLayer('osm')}
+                >
+                  <Text style={styles.baseLayerIcon}>🗺️</Text>
+                  <Text style={[styles.baseLayerText, activeBaseLayer === 'osm' && styles.baseLayerTextActive]}>
+                    Callejero (OSM)
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.baseLayerCard, activeBaseLayer === 'ign_base' && styles.baseLayerCardActive]}
+                  onPress={() => handleSelectBaseLayer('ign_base')}
+                >
+                  <Text style={styles.baseLayerIcon}>🇪🇸</Text>
+                  <Text style={[styles.baseLayerText, activeBaseLayer === 'ign_base' && styles.baseLayerTextActive]}>
+                    Topográfico (IGN)
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.baseLayerCard, activeBaseLayer === 'ign_pnoa' && styles.baseLayerCardActive]}
+                  onPress={() => handleSelectBaseLayer('ign_pnoa')}
+                >
+                  <Text style={styles.baseLayerIcon}>🛰️</Text>
+                  <Text style={[styles.baseLayerText, activeBaseLayer === 'ign_pnoa' && styles.baseLayerTextActive]}>
+                    Ortofoto PNOA (IGN)
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.baseLayerCard, activeBaseLayer === 'esri_sat' && styles.baseLayerCardActive]}
+                  onPress={() => handleSelectBaseLayer('esri_sat')}
+                >
+                  <Text style={styles.baseLayerIcon}>🌍</Text>
+                  <Text style={[styles.baseLayerText, activeBaseLayer === 'esri_sat' && styles.baseLayerTextActive]}>
+                    Satélite (Esri)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Sección 2: Capas Superpuestas */}
+              <Text style={[styles.layersSectionTitle, { marginTop: 16 }]}>CAPAS SUPERPUESTAS</Text>
+              
+              {/* Capa Catastro Unificada */}
+              <View style={styles.overlayItemBox}>
+                <View style={styles.overlayItemRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.overlayItemTitle}>🏛️ Catastro</Text>
+                    <Text style={styles.overlayItemSub}>Lindes y parcelas oficiales</Text>
+                  </View>
+                  <Switch
+                    value={catastroVisible}
+                    onValueChange={handleToggleCatastro}
+                    trackColor={{ false: '#ccc', true: '#99c2ff' }}
+                    thumbColor={catastroVisible ? '#0066cc' : '#f4f4f4'}
+                  />
+                </View>
+
+                {catastroVisible && (
+                  <View style={styles.opacityControlsContainer}>
+                    <Text style={styles.opacityLabel}>Opacidad: {Math.round(catastroOpacity * 100)}%</Text>
+                    <View style={styles.opacityPillsRow}>
+                      {[0.25, 0.50, 0.75, 1.0].map((val) => (
+                        <TouchableOpacity
+                          key={val}
+                          style={[styles.opacityPill, catastroOpacity === val && styles.opacityPillActive]}
+                          onPress={() => handleSetCatastroOpacity(val)}
+                        >
+                          <Text style={[styles.opacityPillText, catastroOpacity === val && styles.opacityPillTextActive]}>
+                            {Math.round(val * 100)}%
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                )}
+              </View>
+
+              {/* Capa Rotulación IGN */}
+              <View style={[styles.overlayItemBox, { marginTop: 10 }]}>
+                <View style={styles.overlayItemRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.overlayItemTitle}>🏷️ Rotulación de Calles (IGN)</Text>
+                    <Text style={styles.overlayItemSub}>Toponimia y nombres sobre ortofotos</Text>
+                  </View>
+                  <Switch
+                    value={ignLabelsVisible}
+                    onValueChange={handleToggleIgnLabels}
+                    trackColor={{ false: '#ccc', true: '#99c2ff' }}
+                    thumbColor={ignLabelsVisible ? '#0066cc' : '#f4f4f4'}
+                  />
+                </View>
+              </View>
+            </ScrollView>
+
+            <TouchableOpacity style={styles.modalAcceptBtn} onPress={() => setShowLayersModal(false)}>
+              <Text style={styles.modalAcceptBtnText}>Aceptar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 5. Tarjeta Deslizante de Información Catastral */}
+      {parcelDetails && !measureMode && (
         <Animated.View 
           style={[
             styles.detailsCard, 
@@ -860,7 +1370,7 @@ export default function App() {
                       del: parcelDetails.del,
                       mun: parcelDetails.mun,
                       parCode: parcelDetails.parCode,
-                      subareaCode: '' // Parcela principal
+                      subareaCode: ''
                     });
                   }}
                 >
@@ -910,39 +1420,39 @@ export default function App() {
                       const int = (sub.interior || '').toLowerCase();
                       return addr.includes(term) || int.includes(term);
                     }).map((sub, idx) => {
-                    const isSelected = selectedSubparcel?.id === sub.id;
-                    return (
-                      <View
-                        key={sub.id + idx}
-                        style={[styles.subparcelItem, isSelected && styles.subparcelItemSelected]}
-                      >
-                        <TouchableOpacity
-                          style={{ flex: 1 }}
-                          onPress={() => setSelectedSubparcel(sub)}
+                      const isSelected = selectedSubparcel?.id === sub.id;
+                      return (
+                        <View
+                          key={sub.id + idx}
+                          style={[styles.subparcelItem, isSelected && styles.subparcelItemSelected]}
                         >
-                          <Text style={styles.subparcelTitle}>{sub.interior}</Text>
-                          <Text style={styles.subparcelRC}>{sub.ref20}</Text>
-                        </TouchableOpacity>
-
-                        <View style={{ flexDirection: 'row', gap: 6 }}>
                           <TouchableOpacity
-                            style={styles.btnMiniFicha}
-                            onPress={() => openOfficialFicha(sub)}
+                            style={{ flex: 1 }}
+                            onPress={() => setSelectedSubparcel(sub)}
                           >
-                            <Text style={styles.btnMiniFichaText}>Ficha 🌐</Text>
+                            <Text style={styles.subparcelTitle}>{sub.interior}</Text>
+                            <Text style={styles.subparcelRC}>{sub.ref20}</Text>
                           </TouchableOpacity>
 
-                          <TouchableOpacity
-                            style={styles.copyBtnMini}
-                            onPress={() => copyToClipboard(sub.ref20)}
-                          >
-                            <Text style={styles.copyBtnMiniText}>Copiar</Text>
-                          </TouchableOpacity>
+                          <View style={{ flexDirection: 'row', gap: 6 }}>
+                            <TouchableOpacity
+                              style={styles.btnMiniFicha}
+                              onPress={() => openOfficialFicha(sub)}
+                            >
+                              <Text style={styles.btnMiniFichaText}>Ficha 🌐</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              style={styles.copyBtnMini}
+                              onPress={() => copyToClipboard(sub.ref20)}
+                            >
+                              <Text style={styles.copyBtnMiniText}>Copiar</Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
-                      </View>
-                    );
-                  })}
-                </ScrollView>
+                      );
+                    })}
+                  </ScrollView>
                 </View>
               )}
             </>
@@ -1023,7 +1533,323 @@ const styles = StyleSheet.create({
   regionBtnText: { fontSize: 12, color: '#666', fontWeight: '600' },
   regionBtnTextActive: { color: '#0066cc', fontWeight: 'bold' },
 
-  // Estilos de búsquedas recientes
+  // Estilos del Panel de Medición
+  measurePanel: {
+    position: 'absolute',
+    top: 45,
+    left: 14,
+    right: 14,
+    backgroundColor: 'white',
+    padding: 12,
+    borderRadius: 14,
+    zIndex: 100,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+  },
+  measureTabsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 6
+  },
+  measureTab: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center'
+  },
+  measureTabActive: {
+    backgroundColor: '#e6f2ff',
+    borderWidth: 1,
+    borderColor: '#0066cc'
+  },
+  measureTabText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666'
+  },
+  measureTabTextActive: {
+    color: '#0066cc',
+    fontWeight: 'bold'
+  },
+  measureExitBtn: {
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    backgroundColor: '#fee',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fcc'
+  },
+  measureExitBtnText: {
+    color: '#cc0000',
+    fontWeight: 'bold',
+    fontSize: 12
+  },
+  measureDisplayBox: {
+    backgroundColor: '#f9fbfd',
+    borderWidth: 1,
+    borderColor: '#e1ecf7',
+    borderRadius: 8,
+    padding: 10,
+    alignItems: 'center',
+    marginVertical: 4
+  },
+  measureMainValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0066cc',
+    textAlign: 'center'
+  },
+  measureSubText: {
+    fontSize: 11,
+    color: '#666',
+    marginTop: 3,
+    textAlign: 'center'
+  },
+  measureActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 6
+  },
+  measureActionBtn: {
+    flex: 1,
+    backgroundColor: '#f0f4f8',
+    paddingVertical: 7,
+    borderRadius: 6,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#d5e0ea'
+  },
+  measureActionBtnDanger: {
+    backgroundColor: '#fff5f5',
+    borderColor: '#f0d0d0'
+  },
+  measureActionBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333'
+  },
+  btnDisabled: {
+    opacity: 0.4
+  },
+
+  // Botonera Flotante Lateral Derecha
+  mapButtonsStack: {
+    position: 'absolute',
+    right: 14,
+    bottom: 30,
+    zIndex: 95,
+    gap: 10,
+    alignItems: 'center'
+  },
+  floatingToolBtn: {
+    backgroundColor: 'white',
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  floatingToolBtnActive: {
+    backgroundColor: '#e6f2ff',
+    borderWidth: 2,
+    borderColor: '#0066cc'
+  },
+  floatingToolIcon: {
+    fontSize: 18
+  },
+  floatingToolLabel: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 1
+  },
+  floatingGpsBtn: {
+    backgroundColor: '#0066cc',
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  floatingGpsIcon: {
+    fontSize: 18,
+    color: 'white'
+  },
+  floatingGpsLabel: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    color: 'white',
+    marginTop: 1
+  },
+
+  // Estilos del Modal de Capas
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16
+  },
+  layersModalCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 16,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+  },
+  layersModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  layersModalTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#111'
+  },
+  modalCloseBtn: {
+    padding: 4
+  },
+  modalCloseBtnText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#888'
+  },
+  layersSectionTitle: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#666',
+    marginBottom: 8,
+    letterSpacing: 0.5
+  },
+  baseLayersGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8
+  },
+  baseLayerCard: {
+    width: '48%',
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    padding: 10,
+    alignItems: 'center'
+  },
+  baseLayerCardActive: {
+    backgroundColor: '#e6f2ff',
+    borderColor: '#0066cc'
+  },
+  baseLayerIcon: {
+    fontSize: 22,
+    marginBottom: 4
+  },
+  baseLayerText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#444',
+    textAlign: 'center'
+  },
+  baseLayerTextActive: {
+    color: '#0066cc',
+    fontWeight: 'bold'
+  },
+  overlayItemBox: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    padding: 12
+  },
+  overlayItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  overlayItemTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#222'
+  },
+  overlayItemSub: {
+    fontSize: 11,
+    color: '#777',
+    marginTop: 2
+  },
+  opacityControlsContainer: {
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#eee'
+  },
+  opacityLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#555',
+    marginBottom: 6
+  },
+  opacityPillsRow: {
+    flexDirection: 'row',
+    gap: 6
+  },
+  opacityPill: {
+    flex: 1,
+    paddingVertical: 5,
+    backgroundColor: '#eef2f6',
+    borderRadius: 6,
+    alignItems: 'center'
+  },
+  opacityPillActive: {
+    backgroundColor: '#0066cc'
+  },
+  opacityPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#555'
+  },
+  opacityPillTextActive: {
+    color: 'white',
+    fontWeight: 'bold'
+  },
+  modalAcceptBtn: {
+    backgroundColor: '#0066cc',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 14
+  },
+  modalAcceptBtnText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 13
+  },
+
+  // Búsquedas recientes
   recentContainer: {
     marginTop: 8,
     backgroundColor: '#fafafa',
@@ -1145,7 +1971,7 @@ const styles = StyleSheet.create({
   subparcelsHeader: { fontWeight: 'bold', fontSize: 12, color: '#444', marginBottom: 6 },
   subparcelItem: {
     flexDirection: 'row',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 8,
     paddingHorizontal: 6,
@@ -1160,24 +1986,5 @@ const styles = StyleSheet.create({
   btnMiniFichaText: { fontSize: 10, color: 'white', fontWeight: 'bold' },
   copyBtnMini: { backgroundColor: '#eef', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
   copyBtnMiniText: { fontSize: 10, color: '#0066cc', fontWeight: 'bold' },
-  gpsBtn: {
-    position: 'absolute',
-    right: 14,
-    bottom: 25,
-    backgroundColor: '#0066cc',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 25,
-    zIndex: 95,
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-  },
-  gpsBtnText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 13,
-  },
 });
+
