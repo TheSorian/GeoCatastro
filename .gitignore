@@ -16,3 +16,8 @@ ios/
 # Logs
 *.log
 npm-debug.log*
+
+# Scratch & test dumps
+test-bundle.js
+*.xml
+*.html

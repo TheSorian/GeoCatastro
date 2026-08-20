@@ -10,7 +10,14 @@
 
 ## 🌟 Características Principales
 
-* 🗺️ **Mapa Interactivo WMS:** Capas oficiales de la Sede Electrónica del Catastro sobre mapas vectoriales de alta precisión.
+* 🗺️ **Selector Avanzado de Capas y Mapas Base:**
+  - **Mapas Base Conmutables:** Callejero (*OpenStreetMap*), Topográfico Oficial (*IGN Base*), Ortofoto Aérea de máxima resolución (*IGN PNOA*) y Satélite (*Esri World Imagery*).
+  - **Capa Catastral Unificada ("Catastro"):** Conmutación automática inteligente entre la Sede Estatal (OVC) y Navarra (IDENA), con control de visibilidad On/Off y regulación de opacidad (25%, 50%, 75%, 100%) para superponer lindes sobre fotos aéreas.
+  - **Rotulación IGN:** Capa superpuesta opcional de toponimia y nombres de calles sobre ortofotos aéreas.
+* 📏 **Herramientas de Medición (Distancias y Áreas):**
+  - **Medición de Distancias:** Trazado de líneas rectas y polilíneas con cálculo geodésico exacto en metros ($m$) y kilómetros ($km$).
+  - **Medición de Áreas y Perímetros:** Trazado de polígonos sobre parcelas con cálculo automático de superficie en metros cuadrados ($m^2$) y hectáreas ($ha$), además de perímetro.
+  - Panel flotante contextual con funciones de **Deshacer**, **Limpiar** y **Salir** sin interferir en las consultas catastrales.
 * 🔎 **Buscador Inteligente Multi-Criterio:**
   - Búsqueda por **Dirección, Calle y Número**.
   - Reconocimiento de **Pedanías, Barrios y Distritos** (ej: *Ocenilla, Cidones*).
