@@ -480,6 +480,7 @@ export default function App() {
 
         function addCachedVertices(verts) {
           if (!Array.isArray(verts)) return;
+          var addedCount = 0;
           for (var i = 0; i < verts.length; i++) {
             var v = verts[i];
             var lat = Array.isArray(v) ? v[0] : (v.lat || v.latitude);
@@ -488,14 +489,27 @@ export default function App() {
               var ll = L.latLng(lat, lon);
               var exists = false;
               for (var j = 0; j < cachedParcelVertices.length; j++) {
-                if (cachedParcelVertices[j].distanceTo(ll) < 0.2) {
+                if (cachedParcelVertices[j].distanceTo(ll) < 0.25) {
                   exists = true;
                   break;
                 }
               }
               if (!exists) {
                 cachedParcelVertices.push(ll);
+                addedCount++;
               }
+            }
+          }
+
+          // Auto-ajuste inmediato del último punto si se acaba de recibir su geometría
+          if (addedCount > 0 && measurePoints.length > 0 && snapEnabled) {
+            var lastIdx = measurePoints.length - 1;
+            var lastPt = measurePoints[lastIdx];
+            var nearest = findNearestVertex(lastPt, 35);
+            if (nearest && (nearest.lat !== lastPt.lat || nearest.lng !== lastPt.lng)) {
+              measurePoints[lastIdx] = nearest;
+              triggerSnapVisual(nearest);
+              updateMeasureGraphics(true);
             }
           }
         }
@@ -505,6 +519,7 @@ export default function App() {
           var clickPt = map.latLngToContainerPoint(clickLatLng);
           var bestVertex = null;
           var minPixelDist = Infinity;
+          var tol = tolerancePixels || 35;
 
           for (var i = 0; i < cachedParcelVertices.length; i++) {
             var vLL = cachedParcelVertices[i];
@@ -512,7 +527,7 @@ export default function App() {
             var dPix = clickPt.distanceTo(vPt);
             var dMeters = clickLatLng.distanceTo(vLL);
 
-            if (dPix <= tolerancePixels && dMeters <= 35) {
+            if (dPix <= tol && dMeters <= 50) {
               if (dPix < minPixelDist) {
                 minPixelDist = dPix;
                 bestVertex = vLL;
@@ -524,15 +539,15 @@ export default function App() {
 
         function triggerSnapVisual(latlng) {
           var snapRing = L.circleMarker(latlng, {
-            radius: 13,
+            radius: 14,
             color: '#10b981',
             weight: 3,
             fillColor: '#34d399',
-            fillOpacity: 0.5
+            fillOpacity: 0.6
           }).addTo(map);
           setTimeout(function() {
             try { map.removeLayer(snapRing); } catch(e) {}
-          }, 700);
+          }, 800);
         }
 
         function computePolygonArea(latlngs) {
@@ -680,6 +695,14 @@ export default function App() {
             } else if (data.type === 'SET_MEASURE_MODE') {
               measureMode = data.mode;
               clearAllMeasure();
+              if (data.mode) {
+                var center = map.getCenter();
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'MEASURE_TAP_GEOQUERY',
+                  lat: center.lat,
+                  lon: center.lng
+                }));
+              }
             } else if (data.type === 'SET_SNAP_ENABLED') {
               snapEnabled = !!data.enabled;
             } else if (data.type === 'REGISTER_PARCEL_VERTICES') {
@@ -700,12 +723,23 @@ export default function App() {
         window.addEventListener('message', handleRNMessage);
         document.addEventListener('message', handleRNMessage);
 
+        map.on('moveend', function() {
+          if (measureMode && snapEnabled) {
+            var center = map.getCenter();
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'MEASURE_TAP_GEOQUERY',
+              lat: center.lat,
+              lon: center.lng
+            }));
+          }
+        });
+
         map.on('click', function(e) {
           if (measureMode) {
             var targetPoint = e.latlng;
             var wasSnapped = false;
             if (snapEnabled) {
-              var nearest = findNearestVertex(e.latlng, 28);
+              var nearest = findNearestVertex(e.latlng, 35);
               if (nearest) {
                 targetPoint = nearest;
                 wasSnapped = true;
@@ -1291,8 +1325,9 @@ export default function App() {
                 snapped: !!data.snapped
               });
             } else if (data.type === 'MEASURE_TAP_GEOQUERY') {
-              if (snapEnabled) {
-                cadastreService.fetchParcelGeometry(null, data.lat, data.lon, selectedRegion)
+              if (snapEnabled && data.lat && data.lon) {
+                const region = cadastreService.detectRegionFromCoords(data.lat, data.lon);
+                cadastreService.fetchParcelGeometry(null, data.lat, data.lon, region)
                   .then((vertices) => {
                     if (vertices && vertices.length > 0) {
                       webViewRef.current?.postMessage(JSON.stringify({
