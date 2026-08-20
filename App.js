@@ -1156,6 +1156,12 @@ export default function App() {
               >
                 <Text style={[styles.regionBtnText, selectedRegion === 'NA' && styles.regionBtnTextActive]}>🔴 Navarra</Text>
               </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.regionBtn, selectedRegion === 'VI' && styles.regionBtnActive]}
+                onPress={() => changeRegion('VI')}
+              >
+                <Text style={[styles.regionBtnText, selectedRegion === 'VI' && styles.regionBtnTextActive]}>🏛️ Álava</Text>
+              </TouchableOpacity>
             </View>
           )}
 
@@ -1647,20 +1653,47 @@ export default function App() {
           ) : (
             <View style={{ marginTop: 10 }}>
               <Text style={styles.hintText}>💡 ¿No se detecta edificio o deseas consultar en otro Catastro?</Text>
-              <TouchableOpacity
-                style={[styles.btnSecondary, { marginTop: 8 }]}
-                onPress={() => {
-                  const targetRegion = selectedRegion === 'NA' ? 'ES' : 'NA';
-                  changeRegion(targetRegion);
-                  if (parcelDetails.lat && parcelDetails.lon) {
-                    fetchParcelByCoords(parcelDetails.lat, parcelDetails.lon, targetRegion);
-                  }
-                }}
-              >
-                <Text style={styles.btnSecondaryText}>
-                  {selectedRegion === 'NA' ? '🌐 Consultar en Catastro Estatal' : '🔴 Consultar en Catastro de Navarra'}
-                </Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+                {selectedRegion !== 'ES' && (
+                  <TouchableOpacity
+                    style={[styles.btnSecondary, { flex: 1 }]}
+                    onPress={() => {
+                      changeRegion('ES');
+                      if (parcelDetails.lat && parcelDetails.lon) {
+                        fetchParcelByCoords(parcelDetails.lat, parcelDetails.lon, 'ES');
+                      }
+                    }}
+                  >
+                    <Text style={styles.btnSecondaryText}>🇪🇸 Estado</Text>
+                  </TouchableOpacity>
+                )}
+                {selectedRegion !== 'NA' && (
+                  <TouchableOpacity
+                    style={[styles.btnSecondary, { flex: 1 }]}
+                    onPress={() => {
+                      changeRegion('NA');
+                      if (parcelDetails.lat && parcelDetails.lon) {
+                        fetchParcelByCoords(parcelDetails.lat, parcelDetails.lon, 'NA');
+                      }
+                    }}
+                  >
+                    <Text style={styles.btnSecondaryText}>🔴 Navarra</Text>
+                  </TouchableOpacity>
+                )}
+                {selectedRegion !== 'VI' && (
+                  <TouchableOpacity
+                    style={[styles.btnSecondary, { flex: 1 }]}
+                    onPress={() => {
+                      changeRegion('VI');
+                      if (parcelDetails.lat && parcelDetails.lon) {
+                        fetchParcelByCoords(parcelDetails.lat, parcelDetails.lon, 'VI');
+                      }
+                    }}
+                  >
+                    <Text style={styles.btnSecondaryText}>🏛️ Álava</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           )}
         </Animated.View>
