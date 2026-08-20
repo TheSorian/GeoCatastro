@@ -222,9 +222,15 @@ export class StateProvider {
   /**
    * Obtiene la geometría oficial (vértices [lat, lon]) de la parcela mediante INSPIRE WFS
    */
-  async fetchParcelGeometry(refCat) {
+  async fetchParcelGeometry(refCat, lat, lon) {
     try {
-      const clean14 = String(refCat || '').trim().substring(0, 14);
+      let clean14 = String(refCat || '').trim().substring(0, 14);
+      if (!clean14 && lat && lon) {
+        const res = await this.fetchParcelByCoords(lat, lon);
+        if (res && res.found && res.ref) {
+          clean14 = String(res.ref).trim().substring(0, 14);
+        }
+      }
       if (!clean14) return [];
       const url = `https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&version=2.0.0&request=GetFeature&STOREDQUERY_ID=GetParcel&srsname=EPSG:4326&REFCAT=${clean14}`;
       const response = await fetch(url);
@@ -234,10 +240,10 @@ export class StateProvider {
       const coords = match[1].trim().split(/\s+/).map(Number);
       const vertices = [];
       for (let i = 0; i < coords.length; i += 2) {
-        const lat = coords[i];
-        const lon = coords[i + 1];
-        if (!isNaN(lat) && !isNaN(lon)) {
-          vertices.push([lat, lon]);
+        const vLat = coords[i];
+        const vLon = coords[i + 1];
+        if (!isNaN(vLat) && !isNaN(vLon)) {
+          vertices.push([vLat, vLon]);
         }
       }
       return vertices;
