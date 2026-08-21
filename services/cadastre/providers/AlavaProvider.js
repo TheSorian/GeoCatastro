@@ -25,11 +25,15 @@ export class AlavaProvider {
         const rawMun = munMatch[1];
         const rawPol = polMatch[1];
         const rawPar = parMatch[1];
+        const munCode = String(parseInt(rawMun, 10));
+        const polCode = String(parseInt(rawPol, 10));
+        const parCode = String(parseInt(rawPar, 10));
+        const refCat = refMatch ? refMatch[1] : (rawMun.padStart(3, '0') + rawPol.padStart(4, '0') + rawPar.padStart(4, '0'));
         return {
-          munCode: String(parseInt(rawMun, 10)),
-          polCode: String(parseInt(rawPol, 10)),
-          parCode: String(parseInt(rawPar, 10)),
-          refCat: refMatch ? refMatch[1] : (rawMun.padStart(3, '0') + rawPol.padStart(4, '0') + rawPar.padStart(4, '0')),
+          munCode,
+          polCode,
+          parCode,
+          refCat,
           munName: txtMunMatch ? txtMunMatch[1] : 'Álava'
         };
       }
@@ -37,6 +41,41 @@ export class AlavaProvider {
       console.warn('Error consultando WMS GeoAraba:', e);
     }
     return null;
+  }
+
+  /**
+   * Obtiene la referencia catastral a partir de coordenadas (devolviendo el formato { found, ref, lat, lon })
+   */
+  async fetchParcelByCoords(lat, lon) {
+    try {
+      let info = await this._queryGeoArabaWMS(lat, lon);
+
+      // Sondeo en 4 direcciones si el clic cae en la calle o acera
+      if (!info) {
+        const delta = 0.00035;
+        const offsets = [
+          [delta, delta],
+          [-delta, -delta],
+          [delta, -delta],
+          [-delta, delta]
+        ];
+        for (const [dx, dy] of offsets) {
+          const pInfo = await this._queryGeoArabaWMS(lat + dy, lon + dx);
+          if (pInfo) {
+            info = pInfo;
+            break;
+          }
+        }
+      }
+
+      if (info && info.refCat) {
+        return { found: true, ref: info.refCat, lat, lon };
+      }
+    } catch(e) {
+      console.warn('Error en fetchParcelByCoords Álava:', e);
+    }
+
+    return { found: false, lat, lon };
   }
 
   /**
@@ -55,9 +94,9 @@ export class AlavaProvider {
       let munName = info?.munName || 'Álava';
       let cleanRef = info?.refCat || refCat || '';
 
-      // Si no tenemos lat/lon pero sí refCat de 20 dígitos:
-      if (!info && refCat && refCat.length >= 11) {
-        const clean = refCat.replace(/\D/g, '');
+      // Si no tenemos lat/lon pero sí refCat de 20 dígitos o 11 dígitos:
+      if (!info && refCat) {
+        const clean = String(refCat).replace(/\D/g, '');
         if (clean.length >= 11) {
           munCode = String(parseInt(clean.substring(0, 3), 10));
           polCode = String(parseInt(clean.substring(3, 7), 10));
@@ -118,6 +157,25 @@ export class AlavaProvider {
     if (!cMun || !cPol || !cPar) return allSubparcels;
 
     try {
+      // 1. Obtener dirección base de subparcelas.aspx
+      let baseStreetAddr = mainAddress;
+      try {
+        const urlSubp = `https://catastroalava.tracasa.es/ref_catastral/subparcelas.aspx?C=${cMun}&PO=${cPol}&PA=${cPar}&lang=es`;
+        const resSubp = await fetch(urlSubp);
+        const htmlSubp = await resSubp.text();
+        const rowsSubp = htmlSubp.split('<tr align="center">');
+        if (rowsSubp.length > 1) {
+          const chunk = rowsSubp[1].split('</tr>')[0];
+          const tds = [...chunk.matchAll(/<td[^>]*>([^<]*)<*/gi)].map(m => m[1].trim());
+          const calle = tds[0] || '';
+          const portal = tds[1] || '';
+          if (calle) {
+            baseStreetAddr = [calle, portal].filter(Boolean).join(' ');
+          }
+        }
+      } catch (err) {}
+
+      // 2. Obtener lista de edificios
       const urlEdificios = `https://catastroalava.tracasa.es/ref_catastral/edificios.aspx?C=${cMun}&PO=${cPol}&PA=${cPar}&lang=es`;
       const resEd = await fetch(urlEdificios);
       const htmlEd = await resEd.text();
@@ -134,7 +192,7 @@ export class AlavaProvider {
           const htmlU = await resU.text();
 
           const dirMatch = htmlU.match(/Direcci[oó]n:\s*<\/td><td class=valor>([^<]+)<\/td>/i);
-          const subAddress = dirMatch ? dirMatch[1].trim() : mainAddress;
+          const subAddress = dirMatch ? dirMatch[1].trim() : baseStreetAddr;
 
           const rows = htmlU.split('<tr align="center">');
           let parsed = [];
@@ -185,7 +243,7 @@ export class AlavaProvider {
           id: refCat,
           ref20: refCat,
           cargo: '0001',
-          address: mainAddress,
+          address: baseStreetAddr,
           interior: 'Parcela / Inmueble Único',
           muni: cMun,
           prov: 'Álava',
@@ -203,34 +261,22 @@ export class AlavaProvider {
   }
 
   /**
-   * Obtiene la referencia catastral a partir de coordenadas
-   */
-  async fetchParcelByCoords(lat, lon) {
-    try {
-      const details = await this.fetchFullParcelDetails(null, lat, lon);
-      return details?.parcelDetails?.refCat || null;
-    } catch(e) {
-      return null;
-    }
-  }
-
-  /**
    * Obtiene coordenadas a partir de la referencia catastral
    */
   async getCoordsFromRC(rc) {
     try {
-      const clean = rc.replace(/\D/g, '');
+      const clean = String(rc).replace(/\D/g, '');
       if (clean.length >= 11) {
         const cMun = parseInt(clean.substring(0, 3), 10);
         const cPol = parseInt(clean.substring(3, 7), 10);
         const cPar = parseInt(clean.substring(7, 11), 10);
         const geom = await this.fetchParcelGeometry(rc, null, null, cMun, cPol, cPar);
         if (geom && geom.length > 0) {
-          return { lat: geom[0][0], lon: geom[0][1] };
+          return { found: true, lat: geom[0][0], lon: geom[0][1], ref: rc };
         }
       }
     } catch(e) {}
-    return null;
+    return { found: false };
   }
 
   /**
@@ -243,11 +289,11 @@ export class AlavaProvider {
       let cPar = parCode || '';
 
       if ((!cMun || !cPar) && refCat) {
-        const clean = refCat.replace(/\D/g, '');
+        const clean = String(refCat).replace(/\D/g, '');
         if (clean.length >= 11) {
-          cMun = parseInt(clean.substring(0, 3), 10);
-          cPol = parseInt(clean.substring(3, 7), 10);
-          cPar = parseInt(clean.substring(7, 11), 10);
+          cMun = String(parseInt(clean.substring(0, 3), 10));
+          cPol = String(parseInt(clean.substring(3, 7), 10));
+          cPar = String(parseInt(clean.substring(7, 11), 10));
         }
       }
 
@@ -283,11 +329,11 @@ export class AlavaProvider {
       }
 
       if (!cMun && refCat) {
-        const clean = refCat.replace(/\D/g, '');
+        const clean = String(refCat).replace(/\D/g, '');
         if (clean.length >= 11) {
-          cMun = parseInt(clean.substring(0, 3), 10);
-          cPol = parseInt(clean.substring(3, 7), 10);
-          cPar = parseInt(clean.substring(7, 11), 10);
+          cMun = String(parseInt(clean.substring(0, 3), 10));
+          cPol = String(parseInt(clean.substring(3, 7), 10));
+          cPar = String(parseInt(clean.substring(7, 11), 10));
         }
       }
 
@@ -335,4 +381,3 @@ export class AlavaProvider {
     return 'PartzelaHiritarrak_ParcelasUrbanas,PartzelaLandatarrak_ParcelasRusticas,Eraikinak_Edificios';
   }
 }
-
