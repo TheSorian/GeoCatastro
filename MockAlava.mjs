@@ -1,5 +1,5 @@
-import * as WebBrowser from 'expo-web-browser';
-import { Alert } from 'react-native';
+
+
 
 /**
  * Función auxiliar para extraer municipio, polígono, parcela y edificio
