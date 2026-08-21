@@ -280,7 +280,7 @@ export class AlavaProvider {
   }
 
   /**
-   * Abre la ficha oficial en el visor de GeoAraba / Catastro de Álava
+   * Abre la ficha oficial en la Sede del Catastro de Álava (como en Navarra)
    */
   async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode) {
     try {
@@ -298,13 +298,21 @@ export class AlavaProvider {
       }
 
       if (cMun && cPar) {
-        const url = `https://catastroalava.tracasa.es/navegar/refCatastral.aspx?fondo=catastro&vector=CatastroyCallejero&C=${cMun}&PO=${cPol || '1'}&PA=${cPar}`;
-        await WebBrowser.openBrowserAsync(url);
+        let url = `https://catastroalava.tracasa.es/ref_catastral/subparcelas.aspx?C=${cMun}&PO=${cPol || '1'}&PA=${cPar}&lang=es`;
+        if (subareaCode) {
+          url = `https://catastroalava.tracasa.es/ref_catastral/unidades.aspx?C=${cMun}&PO=${cPol || '1'}&PA=${cPar}&S=&E=${subareaCode}&lang=es`;
+        }
+
+        await WebBrowser.openBrowserAsync(url, {
+          toolbarColor: '#a5294a', // Granate oficial de Álava / Tracasa
+          controlsColor: '#ffffff',
+          showTitle: true,
+        });
         return;
       }
 
       // Fallback
-      await WebBrowser.openBrowserAsync('https://geo.araba.eus/geobisorea/');
+      await WebBrowser.openBrowserAsync('https://catastroalava.tracasa.es/ref_catastral/subparcelas.aspx');
     } catch(e) {
       Alert.alert('Error', 'No se pudo abrir la ficha oficial de Álava.');
     }
