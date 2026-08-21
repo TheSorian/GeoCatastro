@@ -57,8 +57,8 @@ class CadastreService {
     return this.getProvider(region).getCoordsFromRC(rc);
   }
 
-  async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, region = 'ES') {
-    return this.getProvider(region).openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode);
+  async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, region = 'ES', polCode = '') {
+    return this.getProvider(region).openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, polCode);
   }
 
   async fetchParcelGeometry(refCat, lat, lon, region = 'ES') {

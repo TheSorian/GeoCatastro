@@ -795,9 +795,15 @@ export default function App() {
   // Abrir Ficha Oficial delegado a CadastreService
   const openOfficialFicha = async (item) => {
     // Para Estado necesitamos refCat (o ref20), delCode, munCode. 
-    // Para Navarra necesitamos también parCode y subareaCode (si existe)
+    // Para Navarra y Álava necesitamos también parCode, subareaCode y polCode
     const ref = item.ref20 || item.refCat;
-    await cadastreService.openOfficialFicha(ref, item.del, item.mun, item.parCode, item.subareaCode, selectedRegion);
+    if (item.subareaCode && item.ref20 && selectedRegion === 'VI') {
+      try {
+        await Clipboard.setStringAsync(item.ref20);
+        Alert.alert('Copiado', `Referencia copiada al portapapeles:\n${item.ref20}\n\nPuedes usar "Buscar en página" para localizarla.`);
+      } catch (e) {}
+    }
+    await cadastreService.openOfficialFicha(ref, item.del, item.mun, item.parCode, item.subareaCode, selectedRegion, item.polCode);
   };
 
   // Obtener datos de parcelas e inmuebles
@@ -1584,6 +1590,7 @@ export default function App() {
                       ref20: isSingle ? refToOpen : '',
                       del: parcelDetails.del,
                       mun: parcelDetails.mun,
+                      polCode: parcelDetails.polCode,
                       parCode: parcelDetails.parCode,
                       subareaCode: ''
                     });
