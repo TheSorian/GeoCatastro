@@ -1,6 +1,43 @@
 import * as WebBrowser from 'expo-web-browser';
 import { Alert } from 'react-native';
 
+/**
+ * Función auxiliar para extraer municipio, polígono, parcela y edificio
+ * de cualquier referencia de Álava (20 caracteres u 11 dígitos).
+ */
+export function parseAlavaRef(refCat) {
+  if (!refCat) return null;
+  const clean = String(refCat).trim().toUpperCase();
+
+  // Formato 20 caracteres: MM PP PPPP SSSSSS UUUU CC
+  // Ejemplo: 59 53 0387 000001 0009 BP
+  if (clean.length === 20) {
+    const mun = String(parseInt(clean.substring(0, 2), 10));
+    const pol = String(parseInt(clean.substring(2, 4), 10));
+    const par = String(parseInt(clean.substring(4, 8), 10));
+    const ed = String(parseInt(clean.substring(8, 14), 10));
+    return { mun, pol, par, ed: ed || '1' };
+  }
+
+  // Formato 11 dígitos: MMM PPPP PPPP (ej: 059 0053 0387)
+  if (clean.length === 11) {
+    const mun = String(parseInt(clean.substring(0, 3), 10));
+    const pol = String(parseInt(clean.substring(3, 7), 10));
+    const par = String(parseInt(clean.substring(7, 11), 10));
+    return { mun, pol, par, ed: '' };
+  }
+
+  const digits = clean.replace(/\D/g, '');
+  if (digits.length >= 11) {
+    const mun = String(parseInt(digits.substring(0, 3), 10));
+    const pol = String(parseInt(digits.substring(3, 7), 10));
+    const par = String(parseInt(digits.substring(7, 11), 10));
+    return { mun, pol, par, ed: '' };
+  }
+
+  return null;
+}
+
 export class AlavaProvider {
   /**
    * Helper para consultar WMS GetFeatureInfo en GeoAraba (WMS Katastroa)
@@ -94,13 +131,12 @@ export class AlavaProvider {
       let munName = info?.munName || 'Álava';
       let cleanRef = info?.refCat || refCat || '';
 
-      // Si no tenemos lat/lon pero sí refCat de 20 dígitos o 11 dígitos:
-      if (!info && refCat) {
-        const clean = String(refCat).replace(/\D/g, '');
-        if (clean.length >= 11) {
-          munCode = String(parseInt(clean.substring(0, 3), 10));
-          polCode = String(parseInt(clean.substring(3, 7), 10));
-          parCode = String(parseInt(clean.substring(7, 11), 10));
+      if ((!munCode || !polCode || !parCode) && refCat) {
+        const parsed = parseAlavaRef(refCat);
+        if (parsed) {
+          munCode = parsed.mun;
+          polCode = parsed.pol;
+          parCode = parsed.par;
         }
       }
 
@@ -157,7 +193,7 @@ export class AlavaProvider {
     if (!cMun || !cPol || !cPar) return allSubparcels;
 
     try {
-      // 1. Obtener dirección base de subparcelas.aspx
+      // 1. Obtener dirección base de subparcelas.aspx si existe
       let baseStreetAddr = mainAddress;
       try {
         const urlSubp = `https://catastroalava.tracasa.es/ref_catastral/subparcelas.aspx?C=${cMun}&PO=${cPol}&PA=${cPar}&lang=es`;
@@ -265,11 +301,11 @@ export class AlavaProvider {
    */
   async getCoordsFromRC(rc) {
     try {
-      const clean = String(rc).replace(/\D/g, '');
-      if (clean.length >= 11) {
-        const cMun = parseInt(clean.substring(0, 3), 10);
-        const cPol = parseInt(clean.substring(3, 7), 10);
-        const cPar = parseInt(clean.substring(7, 11), 10);
+      const parsed = parseAlavaRef(rc);
+      if (parsed) {
+        const cMun = parseInt(parsed.mun, 10);
+        const cPol = parseInt(parsed.pol, 10);
+        const cPar = parseInt(parsed.par, 10);
         const geom = await this.fetchParcelGeometry(rc, null, null, cMun, cPol, cPar);
         if (geom && geom.length > 0) {
           return { found: true, lat: geom[0][0], lon: geom[0][1], ref: rc };
@@ -287,20 +323,20 @@ export class AlavaProvider {
       let cMun = munCode || '';
       let cPol = polCode || '';
       let cPar = parCode || '';
+      let cEd = subareaCode || '';
 
-      if ((!cMun || !cPar || !cPol) && refCat) {
-        const clean = String(refCat).replace(/\D/g, '');
-        if (clean.length >= 11) {
-          cMun = String(parseInt(clean.substring(0, 3), 10));
-          cPol = String(parseInt(clean.substring(3, 7), 10));
-          cPar = String(parseInt(clean.substring(7, 11), 10));
-        }
+      const parsed = parseAlavaRef(refCat);
+      if (parsed) {
+        if (!cMun) cMun = parsed.mun;
+        if (!cPol) cPol = parsed.pol;
+        if (!cPar) cPar = parsed.par;
+        if (!cEd && parsed.ed) cEd = parsed.ed;
       }
 
       if (cMun && cPar) {
         let url = `https://catastroalava.tracasa.es/ref_catastral/edificios.aspx?C=${cMun}&PO=${cPol || '1'}&PA=${cPar}&S=&lang=es`;
-        if (subareaCode) {
-          url = `https://catastroalava.tracasa.es/ref_catastral/unidades.aspx?C=${cMun}&PO=${cPol || '1'}&PA=${cPar}&S=&E=${subareaCode}&lang=es`;
+        if (cEd) {
+          url = `https://catastroalava.tracasa.es/ref_catastral/unidades.aspx?C=${cMun}&PO=${cPol || '1'}&PA=${cPar}&S=&E=${cEd}&lang=es`;
         }
 
         await WebBrowser.openBrowserAsync(url, {
@@ -337,11 +373,11 @@ export class AlavaProvider {
       }
 
       if (!cMun && refCat) {
-        const clean = String(refCat).replace(/\D/g, '');
-        if (clean.length >= 11) {
-          cMun = String(parseInt(clean.substring(0, 3), 10));
-          cPol = String(parseInt(clean.substring(3, 7), 10));
-          cPar = String(parseInt(clean.substring(7, 11), 10));
+        const parsed = parseAlavaRef(refCat);
+        if (parsed) {
+          cMun = parsed.mun;
+          cPol = parsed.pol;
+          cPar = parsed.par;
         }
       }
 
