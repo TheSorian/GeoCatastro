@@ -280,15 +280,15 @@ export class AlavaProvider {
   }
 
   /**
-   * Abre la ficha oficial en la Sede del Catastro de Álava (como en Navarra)
+   * Abre la ficha oficial en la Sede del Catastro de Álava
    */
-  async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode) {
+  async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, polCode) {
     try {
       let cMun = munCode || '';
-      let cPol = '';
+      let cPol = polCode || '';
       let cPar = parCode || '';
 
-      if ((!cMun || !cPar) && refCat) {
+      if ((!cMun || !cPar || !cPol) && refCat) {
         const clean = String(refCat).replace(/\D/g, '');
         if (clean.length >= 11) {
           cMun = String(parseInt(clean.substring(0, 3), 10));
@@ -298,7 +298,7 @@ export class AlavaProvider {
       }
 
       if (cMun && cPar) {
-        let url = `https://catastroalava.tracasa.es/ref_catastral/subparcelas.aspx?C=${cMun}&PO=${cPol || '1'}&PA=${cPar}&lang=es`;
+        let url = `https://catastroalava.tracasa.es/ref_catastral/edificios.aspx?C=${cMun}&PO=${cPol || '1'}&PA=${cPar}&S=&lang=es`;
         if (subareaCode) {
           url = `https://catastroalava.tracasa.es/ref_catastral/unidades.aspx?C=${cMun}&PO=${cPol || '1'}&PA=${cPar}&S=&E=${subareaCode}&lang=es`;
         }
@@ -312,7 +312,7 @@ export class AlavaProvider {
       }
 
       // Fallback
-      await WebBrowser.openBrowserAsync('https://catastroalava.tracasa.es/ref_catastral/subparcelas.aspx');
+      await WebBrowser.openBrowserAsync('https://catastroalava.tracasa.es/ref_catastral/edificios.aspx');
     } catch(e) {
       Alert.alert('Error', 'No se pudo abrir la ficha oficial de Álava.');
     }
