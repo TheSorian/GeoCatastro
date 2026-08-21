@@ -1,6 +1,6 @@
 {
   "name": "catastrogsm",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "main": "index.js",
   "dependencies": {
     "@react-native-async-storage/async-storage": "^3.1.1",
@@ -9,6 +9,7 @@
     "expo-location": "~57.0.11",
     "expo-splash-screen": "~57.0.1",
     "expo-status-bar": "~57.0.1",
+    "expo-updates": "~57.0.16",
     "expo-web-browser": "^57.0.2",
     "fast-xml-parser": "^5.10.1",
     "react": "19.2.3",
