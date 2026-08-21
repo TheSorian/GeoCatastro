@@ -240,16 +240,16 @@ export class BizkaiaProvider {
   }
 
   /**
-   * URL del WMS para Bizkaia
+   * URL del WMS para Bizkaia (Servicio oficial INSPIRE Annex 1)
    */
   getWMSUrl() {
-    return 'https://geo.bizkaia.eus/arcgisserverinspire/services/Catastro_O4_ServiciosMapas/MC_ProduccionVigente/MapServer/WMSServer';
+    return 'https://geo.bizkaia.eus/arcgisserverinspire/rest/services/Catastro/Annex1/MapServer/exts/InspireView/service';
   }
 
   /**
    * Capas WMS para Bizkaia
    */
   getWMSLayers() {
-    return 'Parcelas,Edificios,Subparcelas,Textos parcelas';
+    return 'CP.CadastralParcel,AD.Address';
   }
 }
