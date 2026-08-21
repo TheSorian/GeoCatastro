@@ -2,7 +2,7 @@
   "expo": {
     "name": "GeoCatastro",
     "slug": "geocatastro",
-    "version": "1.5.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -54,6 +54,21 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "de1772fa-ea66-4a54-b4e4-b87c465da10f"
+      }
+    },
+    "owner": "thesorian",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/de1772fa-ea66-4a54-b4e4-b87c465da10f",
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      }
     }
   }
 }
