@@ -469,8 +469,10 @@ export default function App() {
               transparent: true,
               version: '1.1.1',
               maxZoom: 24,
-              opacity: catastroOpacity
+              opacity: catastroOpacity,
+              zIndex: 10
             }).addTo(map);
+            catastroWMS.bringToFront();
           }
         }
 
@@ -745,8 +747,13 @@ export default function App() {
         document.addEventListener('message', handleRNMessage);
 
         map.on('moveend', function() {
+          var center = map.getCenter();
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'MAP_MOVED',
+            lat: center.lat,
+            lon: center.lng
+          }));
           if (measureMode && snapEnabled) {
-            var center = map.getCenter();
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'MEASURE_TAP_GEOQUERY',
               lat: center.lat,
@@ -1361,6 +1368,13 @@ export default function App() {
             const data = JSON.parse(e.nativeEvent.data);
             if (data.type === 'MAP_CLICK') {
               fetchParcelByCoords(data.lat, data.lon);
+            } else if (data.type === 'MAP_MOVED') {
+              if (data.lat && data.lon) {
+                const detected = cadastreService.detectRegionFromCoords(data.lat, data.lon);
+                if (detected !== selectedRegion) {
+                  changeRegion(detected);
+                }
+              }
             } else if (data.type === 'MEASURE_UPDATE') {
               setMeasureStats({
                 distance: data.distance || 0,
