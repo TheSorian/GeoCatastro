@@ -369,6 +369,9 @@ export default function App() {
     if (meters >= 1000) {
       return `${(meters / 1000).toFixed(2)} km`;
     }
+    if (meters < 10) {
+      return `${meters.toFixed(2)} m`;
+    }
     return `${meters.toFixed(1)} m`;
   };
 
@@ -377,6 +380,9 @@ export default function App() {
     if (sqMeters >= 10000) {
       const ha = (sqMeters / 10000).toFixed(2);
       return `${ha} ha (${Math.round(sqMeters).toLocaleString('es-ES')} m²)`;
+    }
+    if (sqMeters < 100) {
+      return `${sqMeters.toFixed(1)} m²`;
     }
     return `${Math.round(sqMeters).toLocaleString('es-ES')} m²`;
   };
@@ -550,21 +556,36 @@ export default function App() {
           }, 800);
         }
 
-        function computePolygonArea(latlngs) {
-          if (!latlngs || latlngs.length < 3) return 0;
-          var radius = 6378137; // Radio WGS84 en metros
-          var area = 0;
-          var len = latlngs.length;
+        function computePolygonArea(coords) {
+          if (!coords || coords.length < 3) return 0;
+          var len = coords.length;
+          var avgLat = 0;
           for (var i = 0; i < len; i++) {
-            var p1 = latlngs[i];
-            var p2 = latlngs[(i + 1) % len];
-            var dLambda = (p2.lng - p1.lng) * Math.PI / 180;
-            var phi1 = p1.lat * Math.PI / 180;
-            var phi2 = p2.lat * Math.PI / 180;
-            area += dLambda * (2 + Math.sin(phi1) + Math.sin(phi2));
+            var pt = coords[i];
+            avgLat += (pt.lat !== undefined ? pt.lat : pt[0]);
           }
-          area = Math.abs(area * radius * radius / 4.0);
-          return area;
+          avgLat = (avgLat / len) * (Math.PI / 180);
+          
+          // Factores de escala métrica WGS84 en el elipsoide
+          var kx = 111319.49079327357 * Math.cos(avgLat); // metros por grado de longitud
+          var ky = 111132.954; // metros por grado de latitud
+          
+          var area = 0;
+          for (var j = 0; j < len; j++) {
+            var c1 = coords[j];
+            var c2 = coords[(j + 1) % len];
+            var lat1 = c1.lat !== undefined ? c1.lat : c1[0];
+            var lng1 = c1.lng !== undefined ? c1.lng : (c1.lon !== undefined ? c1.lon : c1[1]);
+            var lat2 = c2.lat !== undefined ? c2.lat : c2[0];
+            var lng2 = c2.lng !== undefined ? c2.lng : (c2.lon !== undefined ? c2.lon : c2[1]);
+            
+            var x1 = lng1 * kx;
+            var y1 = lat1 * ky;
+            var x2 = lng2 * kx;
+            var y2 = lat2 * ky;
+            area += (x1 * y2 - x2 * y1);
+          }
+          return Math.abs(area / 2.0);
         }
 
         function updateMeasureGraphics(wasSnapped) {
@@ -601,7 +622,7 @@ export default function App() {
 
           if (measureMode === 'distance') {
             for (var j = 0; j < measurePoints.length - 1; j++) {
-              totalDistance += measurePoints[j].distanceTo(measurePoints[j + 1]);
+              totalDistance += L.latLng(measurePoints[j]).distanceTo(L.latLng(measurePoints[j + 1]));
             }
             if (measurePoints.length >= 2) {
               measureLineOrPolygon = L.polyline(measurePoints, {
@@ -616,7 +637,7 @@ export default function App() {
             if (measurePoints.length >= 3) {
               totalArea = computePolygonArea(measurePoints);
               for (var k = 0; k < measurePoints.length; k++) {
-                totalPerimeter += measurePoints[k].distanceTo(measurePoints[(k + 1) % measurePoints.length]);
+                totalPerimeter += L.latLng(measurePoints[k]).distanceTo(L.latLng(measurePoints[(k + 1) % measurePoints.length]));
               }
               measureLineOrPolygon = L.polygon(measurePoints, {
                 color: '#0066cc',
@@ -626,7 +647,7 @@ export default function App() {
                 dashArray: '4, 4'
               }).addTo(map);
             } else if (measurePoints.length === 2) {
-              totalPerimeter = measurePoints[0].distanceTo(measurePoints[1]);
+              totalPerimeter = L.latLng(measurePoints[0]).distanceTo(L.latLng(measurePoints[1]));
               measureLineOrPolygon = L.polyline(measurePoints, {
                 color: '#0066cc',
                 weight: 2.5,
