@@ -1592,7 +1592,7 @@ export default function App() {
                   <Text style={styles.btnPrimaryText}>
                     {parcelDetails.count === 1 
                       ? '📄 Abrir Ficha del Inmueble' 
-                      : (selectedRegion === 'NA' ? '📄 Abrir Ficha de Parcela' : '📄 Abrir Mapa de Parcela')
+                      : (selectedRegion === 'NA' || selectedRegion === 'VI' ? '📄 Abrir Ficha de Parcela' : '📄 Abrir Mapa de Parcela')
                     }
                   </Text>
                 </TouchableOpacity>
