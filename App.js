@@ -797,7 +797,7 @@ export default function App() {
     // Para Estado necesitamos refCat (o ref20), delCode, munCode. 
     // Para Navarra y Álava necesitamos también parCode, subareaCode y polCode
     const ref = item.ref20 || item.refCat;
-    if (item.subareaCode && item.ref20 && selectedRegion === 'VI') {
+    if (item.subareaCode && item.ref20 && (selectedRegion === 'VI' || selectedRegion === 'BI' || selectedRegion === 'SS')) {
       try {
         await Clipboard.setStringAsync(item.ref20);
         Alert.alert('Copiado', `Referencia copiada al portapapeles:\n${item.ref20}\n\nPuedes usar "Buscar en página" para localizarla.`);
@@ -1170,7 +1170,7 @@ export default function App() {
           </View>
 
           {isRCInput && (
-            <View style={styles.regionSelectorRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.regionSelectorRow}>
               <TouchableOpacity 
                 style={[styles.regionBtn, selectedRegion === 'ES' && styles.regionBtnActive]}
                 onPress={() => changeRegion('ES')}
@@ -1187,9 +1187,21 @@ export default function App() {
                 style={[styles.regionBtn, selectedRegion === 'VI' && styles.regionBtnActive]}
                 onPress={() => changeRegion('VI')}
               >
-                <Text style={[styles.regionBtnText, selectedRegion === 'VI' && styles.regionBtnTextActive]}>🏛️ Álava</Text>
+                <Text style={[styles.regionBtnText, selectedRegion === 'VI' && styles.regionBtnTextActive]}>🟣 Álava</Text>
               </TouchableOpacity>
-            </View>
+              <TouchableOpacity 
+                style={[styles.regionBtn, selectedRegion === 'BI' && styles.regionBtnActive]}
+                onPress={() => changeRegion('BI')}
+              >
+                <Text style={[styles.regionBtnText, selectedRegion === 'BI' && styles.regionBtnTextActive]}>🔴 Bizkaia</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.regionBtn, selectedRegion === 'SS' && styles.regionBtnActive]}
+                onPress={() => changeRegion('SS')}
+              >
+                <Text style={[styles.regionBtnText, selectedRegion === 'SS' && styles.regionBtnTextActive]}>🔵 Gipuzkoa</Text>
+              </TouchableOpacity>
+            </ScrollView>
           )}
 
           {loading && (
@@ -1599,7 +1611,7 @@ export default function App() {
                   <Text style={styles.btnPrimaryText}>
                     {parcelDetails.count === 1 
                       ? '📄 Abrir Ficha del Inmueble' 
-                      : (selectedRegion === 'NA' || selectedRegion === 'VI' ? '📄 Abrir Ficha de Parcela' : '📄 Abrir Mapa de Parcela')
+                      : (selectedRegion === 'NA' || selectedRegion === 'VI' || selectedRegion === 'BI' || selectedRegion === 'SS' ? '📄 Abrir Ficha de Parcela' : '📄 Abrir Mapa de Parcela')
                     }
                   </Text>
                 </TouchableOpacity>
@@ -1681,10 +1693,10 @@ export default function App() {
           ) : (
             <View style={{ marginTop: 10 }}>
               <Text style={styles.hintText}>💡 ¿No se detecta edificio o deseas consultar en otro Catastro?</Text>
-              <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
                 {selectedRegion !== 'ES' && (
                   <TouchableOpacity
-                    style={[styles.btnSecondary, { flex: 1 }]}
+                    style={[styles.btnSecondary, { paddingHorizontal: 12, marginRight: 6 }]}
                     onPress={() => {
                       changeRegion('ES');
                       if (parcelDetails.lat && parcelDetails.lon) {
@@ -1697,7 +1709,7 @@ export default function App() {
                 )}
                 {selectedRegion !== 'NA' && (
                   <TouchableOpacity
-                    style={[styles.btnSecondary, { flex: 1 }]}
+                    style={[styles.btnSecondary, { paddingHorizontal: 12, marginRight: 6 }]}
                     onPress={() => {
                       changeRegion('NA');
                       if (parcelDetails.lat && parcelDetails.lon) {
@@ -1710,7 +1722,7 @@ export default function App() {
                 )}
                 {selectedRegion !== 'VI' && (
                   <TouchableOpacity
-                    style={[styles.btnSecondary, { flex: 1 }]}
+                    style={[styles.btnSecondary, { paddingHorizontal: 12, marginRight: 6 }]}
                     onPress={() => {
                       changeRegion('VI');
                       if (parcelDetails.lat && parcelDetails.lon) {
@@ -1718,10 +1730,36 @@ export default function App() {
                       }
                     }}
                   >
-                    <Text style={styles.btnSecondaryText}>🏛️ Álava</Text>
+                    <Text style={styles.btnSecondaryText}>🟣 Álava</Text>
                   </TouchableOpacity>
                 )}
-              </View>
+                {selectedRegion !== 'BI' && (
+                  <TouchableOpacity
+                    style={[styles.btnSecondary, { paddingHorizontal: 12, marginRight: 6 }]}
+                    onPress={() => {
+                      changeRegion('BI');
+                      if (parcelDetails.lat && parcelDetails.lon) {
+                        fetchParcelByCoords(parcelDetails.lat, parcelDetails.lon, 'BI');
+                      }
+                    }}
+                  >
+                    <Text style={styles.btnSecondaryText}>🔴 Bizkaia</Text>
+                  </TouchableOpacity>
+                )}
+                {selectedRegion !== 'SS' && (
+                  <TouchableOpacity
+                    style={[styles.btnSecondary, { paddingHorizontal: 12, marginRight: 6 }]}
+                    onPress={() => {
+                      changeRegion('SS');
+                      if (parcelDetails.lat && parcelDetails.lon) {
+                        fetchParcelByCoords(parcelDetails.lat, parcelDetails.lon, 'SS');
+                      }
+                    }}
+                  >
+                    <Text style={styles.btnSecondaryText}>🔵 Gipuzkoa</Text>
+                  </TouchableOpacity>
+                )}
+              </ScrollView>
             </View>
           )}
         </Animated.View>
