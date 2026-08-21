@@ -46,33 +46,39 @@ export class AlavaProvider {
     try {
       const delta = 0.0006;
       const bbox = (lon - delta) + ',' + (lat - delta) + ',' + (lon + delta) + ',' + (lat + delta);
-      const urlGFI = 'https://geo.araba.eus/WMS_Katastroa?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetFeatureInfo&LAYERS=PartzelaHiritarrak_ParcelasUrbanas,PartzelaLandatarrak_ParcelasRusticas&QUERY_LAYERS=PartzelaHiritarrak_ParcelasUrbanas,PartzelaLandatarrak_ParcelasRusticas&INFO_FORMAT=application/vnd.ogc.gml&X=50&Y=50&WIDTH=101&HEIGHT=101&SRS=EPSG:4326&BBOX=' + bbox;
+      
+      // Consultar primero Urbana, si no hay, consultar Rústica. Evita solapamientos que devuelvan fincas de pastos en zona urbana.
+      const layers = ['PartzelaHiritarrak_ParcelasUrbanas', 'PartzelaLandatarrak_ParcelasRusticas'];
+      
+      for (const layer of layers) {
+        const urlGFI = `https://geo.araba.eus/WMS_Katastroa?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetFeatureInfo&LAYERS=${layer}&QUERY_LAYERS=${layer}&INFO_FORMAT=application/vnd.ogc.gml&X=50&Y=50&WIDTH=101&HEIGHT=101&SRS=EPSG:4326&BBOX=${bbox}`;
 
-      const res = await fetch(urlGFI);
-      if (!res.ok) return null;
-      const xml = await res.text();
+        const res = await fetch(urlGFI);
+        if (!res.ok) continue;
+        const xml = await res.text();
 
-      const munMatch = xml.match(/MUNICIPIO="([^"]+)"/i);
-      const polMatch = xml.match(/POLIGONO="([^"]+)"/i);
-      const parMatch = xml.match(/TXPARCELA="([^"]+)"/i);
-      const refMatch = xml.match(/REF_CATASTRAL="([^"]+)"/i);
-      const txtMunMatch = xml.match(/TXT_MUNICIPIO="([^"]+)"/i);
+        const munMatch = xml.match(/MUNICIPIO="([^"]+)"/i);
+        const polMatch = xml.match(/POLIGONO="([^"]+)"/i);
+        const parMatch = xml.match(/TXPARCELA="([^"]+)"/i);
+        const refMatch = xml.match(/REF_CATASTRAL="([^"]+)"/i);
+        const txtMunMatch = xml.match(/TXT_MUNICIPIO="([^"]+)"/i);
 
-      if (munMatch && polMatch && parMatch) {
-        const rawMun = munMatch[1];
-        const rawPol = polMatch[1];
-        const rawPar = parMatch[1];
-        const munCode = String(parseInt(rawMun, 10));
-        const polCode = String(parseInt(rawPol, 10));
-        const parCode = String(parseInt(rawPar, 10));
-        const refCat = refMatch ? refMatch[1] : (rawMun.padStart(3, '0') + rawPol.padStart(4, '0') + rawPar.padStart(4, '0'));
-        return {
-          munCode,
-          polCode,
-          parCode,
-          refCat,
-          munName: txtMunMatch ? txtMunMatch[1] : 'Álava'
-        };
+        if (munMatch && polMatch && parMatch) {
+          const rawMun = munMatch[1];
+          const rawPol = polMatch[1];
+          const rawPar = parMatch[1];
+          const munCode = String(parseInt(rawMun, 10));
+          const polCode = String(parseInt(rawPol, 10));
+          const parCode = String(parseInt(rawPar, 10));
+          const refCat = refMatch ? refMatch[1] : (rawMun.padStart(3, '0') + rawPol.padStart(4, '0') + rawPar.padStart(4, '0'));
+          return {
+            munCode,
+            polCode,
+            parCode,
+            refCat,
+            munName: txtMunMatch ? txtMunMatch[1] : 'Álava'
+          };
+        }
       }
     } catch(e) {
       console.warn('Error consultando WMS GeoAraba:', e);
