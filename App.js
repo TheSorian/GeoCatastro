@@ -25,6 +25,8 @@ import {
 import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
 import * as Location from 'expo-location';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { cadastreService } from './services/cadastre/CadastreService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
@@ -1135,24 +1137,41 @@ export default function App() {
     true;
   `;
 
-  // Compartir o Guardar Ficha Catastral Oficial mediante el menú nativo del sistema
+  // Compartir o Guardar Ficha Catastral Oficial como archivo PDF real
   const handleSharePdf = async () => {
     try {
       if (fichaPdfDataUrl) {
-        await Share.share({
-          title: 'Ficha Catastral Oficial - ' + fichaTitle,
-          message: 'Ficha Catastral Oficial de Bizkaia (' + fichaTitle + ')',
-          url: fichaPdfDataUrl
+        // Extraer la parte base64 pura del data URL (quitar "data:application/pdf;base64,")
+        const base64Data = fichaPdfDataUrl.split(',')[1] || fichaPdfDataUrl;
+        const fileName = 'Ficha_Catastral_' + (fichaTitle || 'Bizkaia').replace(/[^a-zA-Z0-9]/g, '_') + '.pdf';
+        const fileUri = FileSystem.cacheDirectory + fileName;
+
+        // Escribir el PDF al sistema de archivos temporal
+        await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+          encoding: FileSystem.EncodingType.Base64,
         });
+
+        // Compartir el archivo PDF real con el menú nativo del sistema
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'Guardar o Compartir Ficha Catastral',
+            UTI: 'com.adobe.pdf',
+          });
+        } else {
+          Alert.alert('Error', 'La función de compartir no está disponible en este dispositivo.');
+        }
       } else if (fichaPdfUrl) {
+        // Fallback: compartir la URL
         await Share.share({
-          title: 'Ficha Catastral Oficial - ' + fichaTitle,
-          message: 'Ficha Catastral Oficial: ' + fichaPdfUrl,
+          title: 'Ficha Catastral Oficial',
+          message: fichaPdfUrl,
           url: fichaPdfUrl
         });
       }
     } catch (error) {
       console.error('Error compartiendo PDF:', error);
+      Alert.alert('Error', 'No se ha podido compartir el archivo. Inténtalo de nuevo.');
     }
   };
 
