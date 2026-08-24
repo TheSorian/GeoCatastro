@@ -863,77 +863,77 @@ export default function App() {
       
       window.latestPdfUrl = '';
 
-      // Función de descarga segura de PDF dentro de la sesión web (evita PDFs corruptos por falta de cookies)
+      // Función de guardado de PDF mediante el diálogo nativo del sistema
       window.triggerPdfDownload = function() {
-        var urlToUse = window.latestPdfUrl;
-        if (!urlToUse) {
-          var ifr = document.querySelector('#form1\\\\:resultadopdf\\\\:idTabResultadopdfCDocumentoCodigo iframe, iframe, object, embed');
-          if (ifr) urlToUse = ifr.src || ifr.data;
-        }
-        if (urlToUse) {
-          downloadPdfWithSession(urlToUse, 'Ficha_Catastral_' + ref.replace(/\\s+/g, '_') + '.pdf');
-        }
+        window.print();
       };
 
-      function downloadPdfWithSession(url, filename) {
-        var full = url.startsWith('/') ? (window.location.origin + url) : url;
-        fetch(full, { credentials: 'include' })
-          .then(function(res) {
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            return res.blob();
-          })
-          .then(function(blob) {
-            var reader = new FileReader();
-            reader.onloadend = function() {
-              var base64data = reader.result;
-              var a = document.createElement('a');
-              a.href = base64data;
-              a.download = filename || 'Ficha_Catastral.pdf';
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-            };
-            reader.readAsDataURL(blob);
-          })
-          .catch(function(e) {
-            window.location.href = full;
-          });
+      // Cargar PDF.js dinámicamente para renderizar el documento en pantalla
+      function loadPdfJs(callback) {
+        if (window.pdfjsLib) {
+          callback();
+          return;
+        }
+        var script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+        script.onload = function() {
+          if (window.pdfjsLib) {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          }
+          callback();
+        };
+        document.head.appendChild(script);
       }
 
-      // Sobrescribir window.open para que abra en la misma vista o descargue
-      window.open = function(url) {
-        if (url) {
-          if (url.includes('pdf') || url.includes('Certificado') || url.includes('descarga')) {
-            window.latestPdfUrl = url;
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PDF_READY', url: url }));
-            }
-            downloadPdfWithSession(url, 'Ficha_Catastral_' + ref.replace(/\\s+/g, '_') + '.pdf');
-            return window;
-          }
-          window.location.href = url;
-        }
-        return window;
-      };
+      function renderPdfPages(docTab, fullUrl) {
+        if (docTab.getAttribute('data-pdf-rendered')) return;
+        docTab.setAttribute('data-pdf-rendered', 'true');
 
-      // Interceptar enlaces de descarga para forzar descarga segura con sesión
-      document.addEventListener('click', function(e) {
-        var target = e.target.closest('a');
-        if (target && target.href) {
-          if (target.href.includes('pdf') || target.href.includes('Certificado') || target.href.includes('descarga')) {
-            window.latestPdfUrl = target.href;
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PDF_READY', url: target.href }));
-            }
-            downloadPdfWithSession(target.href, 'Ficha_Catastral_' + ref.replace(/\\s+/g, '_') + '.pdf');
-            e.preventDefault();
-            return;
-          }
-          if (target.target === '_blank') {
-            target.target = '_self';
-          }
-        }
-      }, true);
+        var banner = document.createElement('div');
+        banner.style.cssText = 'padding:14px;background:#fef2f2;border:2px solid #ef4444;border-radius:10px;margin:12px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1);';
+        banner.innerHTML = '<p style="font-weight:bold;color:#991b1b;margin-bottom:10px;font-size:15px;">📄 Ficha Catastral Oficial Lista</p>' +
+          '<button type="button" onclick="window.print()" style="display:inline-block;background:#cc0000;color:#fff;font-weight:bold;padding:12px 24px;border-radius:8px;border:none;font-size:15px;box-shadow:0 3px 6px rgba(0,0,0,0.2);cursor:pointer;">🖨️ GUARDAR COMO PDF / IMPRIMIR</button>' +
+          '<div id="pdf-canvas-container" style="margin-top:15px;"><p style="color:#666;font-size:13px;">Cargando visor de páginas...</p></div>';
+        docTab.insertBefore(banner, docTab.firstChild);
+
+        fetch(fullUrl, { credentials: 'include' })
+          .then(function(res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.arrayBuffer();
+          })
+          .then(function(arrayBuffer) {
+            loadPdfJs(function() {
+              if (!window.pdfjsLib) return;
+              window.pdfjsLib.getDocument({ data: arrayBuffer }).promise.then(function(pdfDoc) {
+                var container = document.getElementById('pdf-canvas-container');
+                if (container) container.innerHTML = '';
+                var numPages = pdfDoc.numPages;
+                for (var pageNum = 1; pageNum <= numPages; pageNum++) {
+                  (function(num) {
+                    pdfDoc.getPage(num).then(function(page) {
+                      var viewport = page.getViewport({ scale: 1.4 });
+                      var canvas = document.createElement('canvas');
+                      var ctx = canvas.getContext('2d');
+                      canvas.height = viewport.height;
+                      canvas.width = viewport.width;
+                      canvas.style.cssText = 'max-width:100%;height:auto;margin:10px auto;border:1px solid #ccc;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:block;background:#fff;';
+                      if (container) container.appendChild(canvas);
+
+                      page.render({
+                        canvasContext: ctx,
+                        viewport: viewport
+                      });
+                    });
+                  })(pageNum);
+                }
+              });
+            });
+          })
+          .catch(function(err) {
+            var container = document.getElementById('pdf-canvas-container');
+            if (container) container.innerHTML = '<p style="color:#666;font-size:13px;">Pulsa el botón superior para Guardar como PDF.</p>';
+          });
+      }
 
       // Vigilante continuo de PDFs generados en la página (SOLO cuando el certificado está listo tras el Captcha)
       setInterval(function() {
@@ -946,21 +946,13 @@ export default function App() {
             if (pSrc && !pSrc.includes('recaptcha') && !pSrc.includes('google.com') && !pSrc.includes('gstatic')) {
               var fullPSrc = pSrc.startsWith('/') ? (window.location.origin + pSrc) : pSrc;
               window.latestPdfUrl = fullPSrc;
+              renderPdfPages(docTab, fullPSrc);
               
-              if (!docTab.getAttribute('data-btn-added')) {
-                docTab.setAttribute('data-btn-added', 'true');
-                var banner = document.createElement('div');
-                banner.style.cssText = 'padding:14px;background:#fef2f2;border:2px solid #ef4444;border-radius:10px;margin:12px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1);';
-                banner.innerHTML = '<p style="font-weight:bold;color:#991b1b;margin-bottom:8px;font-size:15px;">📄 Ficha Catastral Oficial Generada</p>' +
-                  '<button type="button" onclick="window.triggerPdfDownload()" style="display:inline-block;background:#cc0000;color:#fff;font-weight:bold;padding:12px 24px;border-radius:8px;border:none;font-size:15px;box-shadow:0 3px 6px rgba(0,0,0,0.2);cursor:pointer;">📥 DESCARGAR / ABRIR PDF</button>';
-                docTab.insertBefore(banner, docTab.firstChild);
-                
-                if (window.ReactNativeWebView) {
-                  window.ReactNativeWebView.postMessage(JSON.stringify({
-                    type: 'PDF_READY',
-                    url: fullPSrc
-                  }));
-                }
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'PDF_READY',
+                  url: fullPSrc
+                }));
               }
             }
           }
@@ -998,6 +990,23 @@ export default function App() {
 
       function startAutofill() {
         try {
+          // Marcar "Con Gráfico"
+          var grafRadio = document.getElementById('form1:grafico:0');
+          if (grafRadio && !grafRadio.checked) {
+            grafRadio.checked = true;
+            if (typeof PrimeFaces !== 'undefined' && PrimeFaces.ab) {
+              PrimeFaces.ab({
+                s: "form1:grafico",
+                e: "change",
+                p: "form1:grafico",
+                u: "form1:panelFiltroGrafico",
+                ps: true
+              });
+            } else if (grafRadio.onchange) {
+              grafRadio.onchange();
+            }
+          }
+
           fillField('form1:textNifSolicitanteFichaCatastral', dni);
           fillField('form1:panelBusquedaNifCheckSolicitanteFichaCatastral', '1');
           
@@ -2012,7 +2021,7 @@ export default function App() {
                     paddingVertical: 5
                   }}
                 >
-                  <Text style={{ color: '#cc0000', fontWeight: 'bold', fontSize: 12 }}>📥 Descargar PDF</Text>
+                  <Text style={{ color: '#cc0000', fontWeight: 'bold', fontSize: 12 }}>🖨️ Guardar PDF</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity
