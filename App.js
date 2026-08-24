@@ -850,11 +850,32 @@ export default function App() {
   `;
 
   // Generador de script de autorrellenado automático para Bizkaia
-  const getBizkaiaInjectedJs = (dni, parcelRef) => `
+  const getBizkaiaInjectedJs = (dni, parcelRef, targetNumFijo = '', targetDoor = '', targetCargo = '') => `
     (function() {
       var dni = ${JSON.stringify(dni)};
       var ref = ${JSON.stringify(parcelRef)};
+      var targetNumFijo = ${JSON.stringify(targetNumFijo)};
+      var targetDoor = ${JSON.stringify(targetDoor)};
+      var targetCargo = ${JSON.stringify(targetCargo)};
       
+      // Sobrescribir window.open para que abra en la misma vista y permita descargas
+      window.open = function(url) {
+        if (url) {
+          window.location.href = url;
+        }
+        return window;
+      };
+
+      // Interceptar enlaces de descarga para forzar apertura directa
+      document.addEventListener('click', function(e) {
+        var target = e.target.closest('a');
+        if (target && target.href) {
+          if (target.target === '_blank') {
+            target.target = '_self';
+          }
+        }
+      }, true);
+
       function fillField(id, val) {
         var el = document.getElementById(id);
         if (el) {
@@ -901,6 +922,7 @@ export default function App() {
                 fillField('form1:textParcela', ref);
                 setTimeout(function() {
                   btnBuscar.click();
+                  waitForResultsAndHighlight();
                 }, 400);
               }
               if (attempts > 30) clearInterval(interval);
@@ -909,6 +931,50 @@ export default function App() {
         } catch (e) {
           console.error('Error autorrellenando Bizkaia:', e);
         }
+      }
+
+      function waitForResultsAndHighlight() {
+        var resAttempts = 0;
+        var resInterval = setInterval(function() {
+          resAttempts++;
+          var rows = document.querySelectorAll('tr[role="row"]');
+          if (rows.length > 1) {
+            clearInterval(resInterval);
+            var matchedRow = null;
+            
+            for (var i = 1; i < rows.length; i++) {
+              var rowText = rows[i].innerText || '';
+              if (targetNumFijo && rowText.includes(targetNumFijo)) {
+                matchedRow = rows[i];
+                break;
+              }
+              if (targetDoor && rowText.toLowerCase().includes(targetDoor.toLowerCase().trim())) {
+                matchedRow = rows[i];
+                break;
+              }
+            }
+
+            if (!matchedRow && rows.length > 1) {
+              matchedRow = rows[1];
+            }
+
+            if (matchedRow) {
+              matchedRow.style.backgroundColor = '#fff3cd';
+              matchedRow.style.border = '2px solid #cc0000';
+              matchedRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              
+              if (targetNumFijo || targetDoor) {
+                var docLink = matchedRow.querySelector('a.ui-commandlink, a[id*="idCommandLinkCargaCaptchaFichaCatastral"]');
+                if (docLink) {
+                  setTimeout(function() {
+                    docLink.click();
+                  }, 600);
+                }
+              }
+            }
+          }
+          if (resAttempts > 40) clearInterval(resInterval);
+        }, 400);
       }
 
       if (document.readyState === 'complete') {
@@ -954,8 +1020,23 @@ export default function App() {
       if (clean.length >= 12) {
         formattedPar = `${clean.substring(0, 3)} ${clean.substring(3, 7)} ${clean.substring(7, 12)}`;
       }
-      setFichaTitle('Ficha Catastral · Bizkaia');
-      setFichaInjectedJs(getBizkaiaInjectedJs(dni || '12345678Z', formattedPar));
+
+      let numFijo = '';
+      if (item.interior) {
+        const nfMatch = item.interior.match(/Nº\s*Fijo:\s*([A-Z0-9]+)/i);
+        if (nfMatch) numFijo = nfMatch[1];
+      }
+
+      let door = '';
+      if (item.interior) {
+        door = item.interior.split('·')[0].trim();
+      }
+
+      const cargo = item.cargo || '';
+      const title = door ? `Ficha · ${door}` : (item.address || 'Ficha Catastral · Bizkaia');
+
+      setFichaTitle(title);
+      setFichaInjectedJs(getBizkaiaInjectedJs(dni || '12345678Z', formattedPar, numFijo, door, cargo));
       setFichaWebViewUrl('https://appsec.ebizkaia.eus/O4GC000C/vistas/fichaCatastral.xhtml?language=es');
       setFichaWebViewVisible(true);
       return;
@@ -1810,8 +1891,27 @@ export default function App() {
                 injectedJavaScript={fichaInjectedJs}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
+                allowFileAccess={true}
+                allowFileAccessFromFileURLs={true}
+                allowUniversalAccessFromFileURLs={true}
+                setSupportMultipleWindows={false}
+                javaScriptCanOpenWindowsAutomatically={true}
                 startInLoadingState={true}
                 scalesPageToFit={true}
+                originWhitelist={['*']}
+                mixedContentMode="always"
+                onShouldStartLoadWithRequest={(request) => {
+                  if (
+                    request.url.endsWith('.pdf') ||
+                    request.url.includes('blob:') ||
+                    request.url.startsWith('intent:') ||
+                    request.url.startsWith('market:')
+                  ) {
+                    Linking.openURL(request.url).catch(() => {});
+                    return false;
+                  }
+                  return true;
+                }}
                 renderLoading={() => (
                   <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
                     <ActivityIndicator size="large" color="#cc0000" />
