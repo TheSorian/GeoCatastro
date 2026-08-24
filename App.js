@@ -19,7 +19,8 @@ import {
   Switch,
   Linking,
   StatusBar,
-  Platform
+  Platform,
+  Share
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
@@ -78,6 +79,7 @@ export default function App() {
   const [fichaInjectedJs, setFichaInjectedJs] = useState('');
   const [fichaTitle, setFichaTitle] = useState('Ficha Catastral');
   const [fichaPdfUrl, setFichaPdfUrl] = useState(null);
+  const [fichaPdfDataUrl, setFichaPdfDataUrl] = useState(null);
   const fichaWebViewRef = useRef(null);
 
   const webViewRef = useRef(null);
@@ -862,10 +864,14 @@ export default function App() {
       var targetCargo = ${JSON.stringify(targetCargo)};
       
       window.latestPdfUrl = '';
+      window.latestPdfBase64 = '';
 
-      // Función de guardado de PDF mediante el diálogo nativo del sistema
-      window.triggerPdfDownload = function() {
-        window.print();
+      window.triggerSharePdf = function() {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'TRIGGER_SHARE'
+          }));
+        }
       };
 
       // Cargar PDF.js dinámicamente para renderizar el documento en pantalla
@@ -889,49 +895,74 @@ export default function App() {
         if (docTab.getAttribute('data-pdf-rendered')) return;
         docTab.setAttribute('data-pdf-rendered', 'true');
 
-        var banner = document.createElement('div');
-        banner.style.cssText = 'padding:14px;background:#fef2f2;border:2px solid #ef4444;border-radius:10px;margin:12px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1);';
-        banner.innerHTML = '<p style="font-weight:bold;color:#991b1b;margin-bottom:10px;font-size:15px;">📄 Ficha Catastral Oficial Lista</p>' +
-          '<button type="button" onclick="window.print()" style="display:inline-block;background:#cc0000;color:#fff;font-weight:bold;padding:12px 24px;border-radius:8px;border:none;font-size:15px;box-shadow:0 3px 6px rgba(0,0,0,0.2);cursor:pointer;">🖨️ GUARDAR COMO PDF / IMPRIMIR</button>' +
-          '<div id="pdf-canvas-container" style="margin-top:15px;"><p style="color:#666;font-size:13px;">Cargando visor de páginas...</p></div>';
-        docTab.insertBefore(banner, docTab.firstChild);
-
         fetch(fullUrl, { credentials: 'include' })
           .then(function(res) {
             if (!res.ok) throw new Error('HTTP ' + res.status);
-            return res.arrayBuffer();
+            return res.blob();
           })
-          .then(function(arrayBuffer) {
-            loadPdfJs(function() {
-              if (!window.pdfjsLib) return;
-              window.pdfjsLib.getDocument({ data: arrayBuffer }).promise.then(function(pdfDoc) {
-                var container = document.getElementById('pdf-canvas-container');
-                if (container) container.innerHTML = '';
-                var numPages = pdfDoc.numPages;
-                for (var pageNum = 1; pageNum <= numPages; pageNum++) {
-                  (function(num) {
-                    pdfDoc.getPage(num).then(function(page) {
-                      var viewport = page.getViewport({ scale: 1.4 });
-                      var canvas = document.createElement('canvas');
-                      var ctx = canvas.getContext('2d');
-                      canvas.height = viewport.height;
-                      canvas.width = viewport.width;
-                      canvas.style.cssText = 'max-width:100%;height:auto;margin:10px auto;border:1px solid #ccc;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:block;background:#fff;';
-                      if (container) container.appendChild(canvas);
+          .then(function(blob) {
+            var reader = new FileReader();
+            reader.onloadend = function() {
+              var base64data = reader.result;
+              window.latestPdfBase64 = base64data;
+              
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'PDF_BASE64',
+                  dataUrl: base64data,
+                  url: fullUrl
+                }));
+              }
 
-                      page.render({
-                        canvasContext: ctx,
-                        viewport: viewport
-                      });
-                    });
-                  })(pageNum);
+              var banner = document.createElement('div');
+              banner.style.cssText = 'padding:14px;background:#fef2f2;border:2px solid #ef4444;border-radius:10px;margin:12px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1);';
+              banner.innerHTML = '<p style="font-weight:bold;color:#991b1b;margin-bottom:10px;font-size:15px;">📄 Ficha Catastral Oficial Lista</p>' +
+                '<button type="button" onclick="window.triggerSharePdf()" style="display:inline-block;background:#cc0000;color:#fff;font-weight:bold;padding:12px 24px;border-radius:8px;border:none;font-size:15px;box-shadow:0 3px 6px rgba(0,0,0,0.2);cursor:pointer;">📤 GUARDAR / COMPARTIR FICHA</button>' +
+                '<div id="pdf-canvas-container" style="margin-top:15px;"><p style="color:#666;font-size:13px;">Cargando visor de páginas...</p></div>';
+              docTab.insertBefore(banner, docTab.firstChild);
+
+              loadPdfJs(function() {
+                if (!window.pdfjsLib) return;
+                var raw = window.atob(base64data.split(',')[1]);
+                var rawLength = raw.length;
+                var array = new Uint8Array(new ArrayBuffer(rawLength));
+                for (var i = 0; i < rawLength; i++) {
+                  array[i] = raw.charCodeAt(i);
                 }
+
+                window.pdfjsLib.getDocument({ data: array }).promise.then(function(pdfDoc) {
+                  var container = document.getElementById('pdf-canvas-container');
+                  if (container) container.innerHTML = '';
+                  var numPages = pdfDoc.numPages;
+                  for (var pageNum = 1; pageNum <= numPages; pageNum++) {
+                    (function(num) {
+                      pdfDoc.getPage(num).then(function(page) {
+                        var viewport = page.getViewport({ scale: 1.5 });
+                        var canvas = document.createElement('canvas');
+                        var ctx = canvas.getContext('2d');
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+                        canvas.style.cssText = 'max-width:100%;height:auto;margin:10px auto;border:1px solid #ccc;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:block;background:#fff;';
+                        if (container) container.appendChild(canvas);
+
+                        page.render({
+                          canvasContext: ctx,
+                          viewport: viewport
+                        });
+                      });
+                    })(pageNum);
+                  }
+                });
               });
-            });
+            };
+            reader.readAsDataURL(blob);
           })
           .catch(function(err) {
-            var container = document.getElementById('pdf-canvas-container');
-            if (container) container.innerHTML = '<p style="color:#666;font-size:13px;">Pulsa el botón superior para Guardar como PDF.</p>';
+            var banner = document.createElement('div');
+            banner.style.cssText = 'padding:14px;background:#fef2f2;border:2px solid #ef4444;border-radius:10px;margin:12px;text-align:center;';
+            banner.innerHTML = '<p style="font-weight:bold;color:#991b1b;margin-bottom:10px;">📄 Ficha Catastral Lista</p>' +
+              '<button type="button" onclick="window.triggerSharePdf()" style="background:#cc0000;color:#fff;font-weight:bold;padding:12px 24px;border-radius:8px;border:none;cursor:pointer;">📤 GUARDAR / COMPARTIR FICHA</button>';
+            docTab.insertBefore(banner, docTab.firstChild);
           });
       }
 
@@ -1104,16 +1135,42 @@ export default function App() {
     true;
   `;
 
-  // Manejador de eventos desde el WebView de Ficha (Detección de PDF sin molestar con alertas)
+  // Compartir o Guardar Ficha Catastral Oficial mediante el menú nativo del sistema
+  const handleSharePdf = async () => {
+    try {
+      if (fichaPdfDataUrl) {
+        await Share.share({
+          title: 'Ficha Catastral Oficial - ' + fichaTitle,
+          message: 'Ficha Catastral Oficial de Bizkaia (' + fichaTitle + ')',
+          url: fichaPdfDataUrl
+        });
+      } else if (fichaPdfUrl) {
+        await Share.share({
+          title: 'Ficha Catastral Oficial - ' + fichaTitle,
+          message: 'Ficha Catastral Oficial: ' + fichaPdfUrl,
+          url: fichaPdfUrl
+        });
+      }
+    } catch (error) {
+      console.error('Error compartiendo PDF:', error);
+    }
+  };
+
+  // Manejador de eventos desde el WebView de Ficha
   const handleFichaMessage = (event) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'PDF_READY' && data.url) {
+      if (data.type === 'PDF_BASE64') {
+        setFichaPdfDataUrl(data.dataUrl);
+        if (data.url) setFichaPdfUrl(data.url);
+      } else if (data.type === 'PDF_READY' && data.url) {
         const urlLower = data.url.toLowerCase();
         if (urlLower.includes('recaptcha') || urlLower.includes('google.com') || urlLower.includes('gstatic') || urlLower.includes('about:blank')) {
           return;
         }
         setFichaPdfUrl(data.url);
+      } else if (data.type === 'TRIGGER_SHARE') {
+        handleSharePdf();
       }
     } catch (e) {}
   };
@@ -2009,11 +2066,9 @@ export default function App() {
               {fichaTitle}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              {fichaPdfUrl && (
+              {(fichaPdfDataUrl || fichaPdfUrl) && (
                 <TouchableOpacity
-                  onPress={() => {
-                    fichaWebViewRef.current?.injectJavaScript("window.triggerPdfDownload && window.triggerPdfDownload(); true;");
-                  }}
+                  onPress={handleSharePdf}
                   style={{
                     backgroundColor: '#fff',
                     borderRadius: 16,
@@ -2021,13 +2076,14 @@ export default function App() {
                     paddingVertical: 5
                   }}
                 >
-                  <Text style={{ color: '#cc0000', fontWeight: 'bold', fontSize: 12 }}>🖨️ Guardar PDF</Text>
+                  <Text style={{ color: '#cc0000', fontWeight: 'bold', fontSize: 12 }}>📤 Guardar / Compartir</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity
                 onPress={() => {
                   setFichaWebViewVisible(false);
                   setFichaPdfUrl(null);
+                  setFichaPdfDataUrl(null);
                 }}
                 style={{
                   backgroundColor: 'rgba(255,255,255,0.25)',
