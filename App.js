@@ -17,7 +17,8 @@ import {
   PanResponder,
   Modal,
   Switch,
-  Linking
+  Linking,
+  StatusBar
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
@@ -69,6 +70,12 @@ export default function App() {
   const [dniModalVisible, setDniModalVisible] = useState(false);
   const [dniInput, setDniInput] = useState('');
   const [pendingFichaItem, setPendingFichaItem] = useState(null);
+
+  // Estado para Visor de Ficha In-App con Autofill Inteligente
+  const [fichaWebViewVisible, setFichaWebViewVisible] = useState(false);
+  const [fichaWebViewUrl, setFichaWebViewUrl] = useState('');
+  const [fichaInjectedJs, setFichaInjectedJs] = useState('');
+  const [fichaTitle, setFichaTitle] = useState('Ficha Catastral');
 
   const webViewRef = useRef(null);
   const typingTimer = useRef(null);
@@ -842,6 +849,77 @@ export default function App() {
     </html>
   `;
 
+  // Generador de script de autorrellenado automático para Bizkaia
+  const getBizkaiaInjectedJs = (dni, parcelRef) => `
+    (function() {
+      var dni = ${JSON.stringify(dni)};
+      var ref = ${JSON.stringify(parcelRef)};
+      
+      function fillField(id, val) {
+        var el = document.getElementById(id);
+        if (el) {
+          el.value = val;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          el.dispatchEvent(new Event('blur', { bubbles: true }));
+        }
+        return el;
+      }
+
+      function startAutofill() {
+        try {
+          fillField('form1:textNifSolicitanteFichaCatastral', dni);
+          fillField('form1:panelBusquedaNifCheckSolicitanteFichaCatastral', '1');
+          
+          if (typeof buscarSolicitanteFichaCatastral === 'function') {
+            buscarSolicitanteFichaCatastral();
+          }
+
+          setTimeout(function() {
+            var parRadio = document.getElementById('form1:consolePublico:3');
+            if (parRadio) {
+              parRadio.checked = true;
+              if (typeof PrimeFaces !== 'undefined' && PrimeFaces.ab) {
+                PrimeFaces.ab({
+                  s: "form1:consolePublico",
+                  e: "change",
+                  p: "form1:consolePublico",
+                  u: "form1:panelSeleccionFichaCatastral form1:panelBotoneraBuscar"
+                });
+              } else if (parRadio.onchange) {
+                parRadio.onchange();
+              }
+            }
+
+            var attempts = 0;
+            var interval = setInterval(function() {
+              attempts++;
+              var textPar = document.getElementById('form1:textParcela');
+              var btnBuscar = document.getElementById('form1:cmdButtonBuscar');
+              if (textPar && btnBuscar) {
+                clearInterval(interval);
+                fillField('form1:textParcela', ref);
+                setTimeout(function() {
+                  btnBuscar.click();
+                }, 400);
+              }
+              if (attempts > 30) clearInterval(interval);
+            }, 300);
+          }, 600);
+        } catch (e) {
+          console.error('Error autorrellenando Bizkaia:', e);
+        }
+      }
+
+      if (document.readyState === 'complete') {
+        setTimeout(startAutofill, 400);
+      } else {
+        window.addEventListener('load', function() { setTimeout(startAutofill, 400); });
+      }
+    })();
+    true;
+  `;
+
   // Guardar DNI del usuario en almacenamiento local
   const saveUserDni = async (dniToSave) => {
     const clean = String(dniToSave || '').trim().toUpperCase();
@@ -858,7 +936,7 @@ export default function App() {
     }
   };
 
-  // Abrir Ficha Oficial delegado a CadastreService
+  // Abrir Ficha Oficial delegado a CadastreService o Visor In-App
   const openOfficialFicha = async (item) => {
     if (selectedRegion === 'BI' && !savedDni) {
       setPendingFichaItem(item);
@@ -871,15 +949,19 @@ export default function App() {
   const executeOpenOfficialFicha = async (item, dni) => {
     const ref = item.ref20 || item.refCat;
     if (selectedRegion === 'BI') {
-      try {
-        const cleanRef = String(ref || '').replace(/\s+/g, '');
-        await Clipboard.setStringAsync(cleanRef);
-        Alert.alert(
-          'Referencia Copiada',
-          `Referencia Catastral:\n${cleanRef}${dni ? `\n\nNIF solicitante: ${dni}` : ''}\n\nEn la Sede de Bizkaia:\n1. Pega tu NIF en la casilla del solicitante.\n2. Marca 'Parcela' (o 'Bien Inmueble').\n3. Pega la referencia para descargar la Ficha Oficial.`
-        );
-      } catch (e) {}
-    } else if (item.subareaCode && item.ref20 && (selectedRegion === 'VI' || selectedRegion === 'SS')) {
+      const clean = String(ref || '').replace(/\s+/g, '');
+      let formattedPar = clean;
+      if (clean.length >= 12) {
+        formattedPar = `${clean.substring(0, 3)} ${clean.substring(3, 7)} ${clean.substring(7, 12)}`;
+      }
+      setFichaTitle('Ficha Catastral · Bizkaia');
+      setFichaInjectedJs(getBizkaiaInjectedJs(dni || '12345678Z', formattedPar));
+      setFichaWebViewUrl('https://appsec.ebizkaia.eus/O4GC000C/vistas/fichaCatastral.xhtml?language=es');
+      setFichaWebViewVisible(true);
+      return;
+    }
+    
+    if (item.subareaCode && item.ref20 && (selectedRegion === 'VI' || selectedRegion === 'SS')) {
       try {
         await Clipboard.setStringAsync(item.ref20);
         Alert.alert('Copiado', `Referencia copiada al portapapeles:\n${item.ref20}\n\nPuedes usar "Buscar en página" para localizarla.`);
@@ -1688,6 +1770,58 @@ export default function App() {
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* Modal Visor de Ficha Catastral con Autofill Inteligente */}
+      <Modal
+        visible={fichaWebViewVisible}
+        animationType="slide"
+        onRequestClose={() => setFichaWebViewVisible(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#cc0000' }}>
+          <StatusBar barStyle="light-content" backgroundColor="#cc0000" />
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            backgroundColor: '#cc0000'
+          }}>
+            <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>
+              {fichaTitle}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setFichaWebViewVisible(false)}
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.25)',
+                borderRadius: 16,
+                paddingHorizontal: 12,
+                paddingVertical: 6
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>Cerrar ✕</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ flex: 1, backgroundColor: '#fff' }}>
+            {fichaWebViewVisible && (
+              <WebView
+                source={{ uri: fichaWebViewUrl }}
+                injectedJavaScript={fichaInjectedJs}
+                javaScriptEnabled={true}
+                domStorageEnabled={true}
+                startInLoadingState={true}
+                scalesPageToFit={true}
+                renderLoading={() => (
+                  <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+                    <ActivityIndicator size="large" color="#cc0000" />
+                    <Text style={{ marginTop: 12, color: '#666', fontWeight: '600' }}>Cargando y autorrellenando Ficha...</Text>
+                  </View>
+                )}
+              />
+            )}
+          </View>
+        </SafeAreaView>
       </Modal>
 
       {/* 5. Tarjeta Deslizante de Información Catastral */}
