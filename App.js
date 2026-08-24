@@ -469,7 +469,8 @@ export default function App() {
             var tile = document.createElement('img');
             var tileSize = this.getTileSize().x;
             var R = 20037508.342789244;
-            var n = Math.pow(2, coords.z);
+            // Leaflet calcula el grid asumiendo escala base 256px, hay que ajustar el divisor N
+            var n = (256 / tileSize) * Math.pow(2, coords.z);
             var ts = 2 * R / n;
             var minX = coords.x * ts - R;
             var maxX = (coords.x + 1) * ts - R;
@@ -477,7 +478,7 @@ export default function App() {
             var minY = R - (coords.y + 1) * ts;
             var bbox = minX + ',' + minY + ',' + maxX + ',' + maxY;
             var baseUrl = currentWMSUrl; // Se reusa currentWMSUrl para la base
-            tile.src = baseUrl + '?bbox=' + bbox + '&bboxSR=3857&layers=show%3A38,42&size=' + tileSize + ',' + tileSize + '&imageSR=3857&format=png8&transparent=true&f=image&dpi=96';
+            tile.src = baseUrl + '?bbox=' + bbox + '&bboxSR=3857&layers=' + encodeURIComponent(currentWMSLayers) + '&size=' + tileSize + ',' + tileSize + '&imageSR=3857&format=png8&transparent=true&f=image&dpi=96';
             tile.onload = function() { done(null, tile); };
             tile.onerror = function(e) { done(e, tile); };
             tile.style.opacity = catastroOpacity;
