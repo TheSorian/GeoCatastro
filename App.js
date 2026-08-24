@@ -445,34 +445,63 @@ export default function App() {
           transparent: true
         });
 
-        // --- Capa WMS Catastral Unificada (Nacional / Navarra) ---
+        // --- Capa Catastral Unificada (WMS estándar + ArcGIS Export para Bizkaia) ---
         var currentWMSUrl = 'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx';
         var currentWMSLayers = 'catastro';
+        var currentLayerType = 'wms'; // 'wms' | 'arcgis_export'
         var catastroVisible = true;
         var catastroOpacity = 0.85;
 
-        var catastroWMS = L.tileLayer.wms(currentWMSUrl, {
-          layers: currentWMSLayers,
-          format: 'image/png',
-          transparent: true,
-          version: '1.1.1',
-          maxZoom: 24,
-          opacity: catastroOpacity
-        }).addTo(map);
+        // Capa ArcGIS Export personalizada (compatible XYZ con bbox calculado por tile)
+        var ArcGISExportLayer = L.GridLayer.extend({
+          options: { tileSize: 256, opacity: 0.85, zIndex: 10 },
+          createTile: function(coords, done) {
+            var tile = document.createElement('img');
+            var tileSize = this.getTileSize().x;
+            var R = 20037508.342789244;
+            var n = Math.pow(2, coords.z);
+            var ts = 2 * R / n;
+            var minX = coords.x * ts - R;
+            var maxX = (coords.x + 1) * ts - R;
+            var maxY = R - coords.y * ts;
+            var minY = R - (coords.y + 1) * ts;
+            var bbox = minX + ',' + minY + ',' + maxX + ',' + maxY;
+            var baseUrl = currentWMSUrl; // Se reusa currentWMSUrl para la base
+            tile.src = baseUrl + '?bbox=' + bbox + '&bboxSR=3857&layers=show%3A38,39,40,42&size=' + tileSize + ',' + tileSize + '&imageSR=3857&format=png32&transparent=true&f=image&dpi=96';
+            tile.onload = function() { done(null, tile); };
+            tile.onerror = function(e) { done(e, tile); };
+            tile.style.opacity = catastroOpacity;
+            return tile;
+          }
+        });
+
+        var catastroWMS = null;
+
+        function buildWMSLayer() {
+          return L.tileLayer.wms(currentWMSUrl, {
+            layers: currentWMSLayers,
+            format: 'image/png',
+            transparent: true,
+            version: '1.1.1',
+            maxZoom: 24,
+            opacity: catastroOpacity,
+            zIndex: 10
+          });
+        }
+
+        function buildExportLayer() {
+          return new ArcGISExportLayer({ opacity: catastroOpacity, zIndex: 10 });
+        }
+
+        // Inicializar capa WMS por defecto
+        catastroWMS = buildWMSLayer().addTo(map);
 
         function refreshCatastroLayer() {
           if (catastroWMS) map.removeLayer(catastroWMS);
           if (catastroVisible) {
-            catastroWMS = L.tileLayer.wms(currentWMSUrl, {
-              layers: currentWMSLayers,
-              format: 'image/png',
-              transparent: true,
-              version: '1.1.1',
-              maxZoom: 24,
-              opacity: catastroOpacity,
-              zIndex: 10
-            }).addTo(map);
-            catastroWMS.bringToFront();
+            catastroWMS = (currentLayerType === 'arcgis_export') ? buildExportLayer() : buildWMSLayer();
+            catastroWMS.addTo(map);
+            if (catastroWMS.bringToFront) catastroWMS.bringToFront();
           }
         }
 
@@ -687,7 +716,8 @@ export default function App() {
             
             if (data.type === 'CHANGE_REGION') {
               currentWMSUrl = data.wmsUrl;
-              currentWMSLayers = data.wmsLayers;
+              currentWMSLayers = data.wmsLayers || 'catastro';
+              currentLayerType = data.layerType || 'wms';
               refreshCatastroLayer();
             } else if (data.type === 'MOVE_TO') {
               map.setView([data.lat, data.lon], Math.min(Math.max(map.getZoom(), 19), 24));
@@ -1069,7 +1099,8 @@ export default function App() {
       webViewRef.current?.postMessage(JSON.stringify({
         type: 'CHANGE_REGION',
         wmsUrl: cadastreService.getWMSUrl(newRegion),
-        wmsLayers: cadastreService.getWMSLayers(newRegion)
+        wmsLayers: cadastreService.getWMSLayers(newRegion),
+        layerType: cadastreService.getWMSLayerType(newRegion)
       }));
     }
   };
