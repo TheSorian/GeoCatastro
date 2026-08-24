@@ -833,9 +833,18 @@ export default function App() {
   // Abrir Ficha Oficial delegado a CadastreService
   const openOfficialFicha = async (item) => {
     // Para Estado necesitamos refCat (o ref20), delCode, munCode. 
-    // Para Navarra y Álava necesitamos también parCode, subareaCode y polCode
+    // Para Navarra, Álava, Bizkaia y Gipuzkoa necesitamos también parCode, subareaCode y polCode
     const ref = item.ref20 || item.refCat;
-    if (item.subareaCode && item.ref20 && (selectedRegion === 'VI' || selectedRegion === 'BI' || selectedRegion === 'SS')) {
+    if (selectedRegion === 'BI') {
+      try {
+        const cleanRef = String(ref || '').trim();
+        await Clipboard.setStringAsync(cleanRef);
+        Alert.alert(
+          'Referencia Copiada',
+          `Referencia Catastral:\n${cleanRef}\n\nEn la Sede de Bizkaia:\n1. Introduce tu NIF/DNI en la casilla del solicitante.\n2. Marca 'Parcela' (o 'Bien Inmueble').\n3. Pega la referencia para descargar la Ficha Oficial.`
+        );
+      } catch (e) {}
+    } else if (item.subareaCode && item.ref20 && (selectedRegion === 'VI' || selectedRegion === 'SS')) {
       try {
         await Clipboard.setStringAsync(item.ref20);
         Alert.alert('Copiado', `Referencia copiada al portapapeles:\n${item.ref20}\n\nPuedes usar "Buscar en página" para localizarla.`);
