@@ -122,6 +122,11 @@ class CadastreService {
   getWMSLayers(region = 'ES') {
     return this.getProvider(region).getWMSLayers();
   }
+
+  getWMSLayerType(region = 'ES') {
+    const provider = this.getProvider(region);
+    return typeof provider.getWMSLayerType === 'function' ? provider.getWMSLayerType() : 'wms';
+  }
 }
 
 export const cadastreService = new CadastreService();
