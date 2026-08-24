@@ -64,6 +64,12 @@ export default function App() {
     snapped: false
   });
 
+  // Estado para NIF/DNI guardado para consultas de Ficha (Bizkaia, etc.)
+  const [savedDni, setSavedDni] = useState('');
+  const [dniModalVisible, setDniModalVisible] = useState(false);
+  const [dniInput, setDniInput] = useState('');
+  const [pendingFichaItem, setPendingFichaItem] = useState(null);
+
   const webViewRef = useRef(null);
   const typingTimer = useRef(null);
 
@@ -148,6 +154,12 @@ export default function App() {
     loadRecentSearches();
     checkAppUpdate();
     getUserLocation(true);
+    AsyncStorage.getItem('@catastro_user_dni').then(val => {
+      if (val) {
+        setSavedDni(val);
+        setDniInput(val);
+      }
+    }).catch(() => {});
     SplashScreen.hideAsync().catch(() => {});
   }, []);
 
@@ -830,18 +842,41 @@ export default function App() {
     </html>
   `;
 
+  // Guardar DNI del usuario en almacenamiento local
+  const saveUserDni = async (dniToSave) => {
+    const clean = String(dniToSave || '').trim().toUpperCase();
+    setSavedDni(clean);
+    setDniModalVisible(false);
+    try {
+      await AsyncStorage.setItem('@catastro_user_dni', clean);
+    } catch (e) {}
+
+    if (pendingFichaItem) {
+      const itm = pendingFichaItem;
+      setPendingFichaItem(null);
+      executeOpenOfficialFicha(itm, clean);
+    }
+  };
+
   // Abrir Ficha Oficial delegado a CadastreService
   const openOfficialFicha = async (item) => {
-    // Para Estado necesitamos refCat (o ref20), delCode, munCode. 
-    // Para Navarra, Álava, Bizkaia y Gipuzkoa necesitamos también parCode, subareaCode y polCode
+    if (selectedRegion === 'BI' && !savedDni) {
+      setPendingFichaItem(item);
+      setDniModalVisible(true);
+      return;
+    }
+    await executeOpenOfficialFicha(item, savedDni);
+  };
+
+  const executeOpenOfficialFicha = async (item, dni) => {
     const ref = item.ref20 || item.refCat;
     if (selectedRegion === 'BI') {
       try {
-        const cleanRef = String(ref || '').trim();
+        const cleanRef = String(ref || '').replace(/\s+/g, '');
         await Clipboard.setStringAsync(cleanRef);
         Alert.alert(
           'Referencia Copiada',
-          `Referencia Catastral:\n${cleanRef}\n\nEn la Sede de Bizkaia:\n1. Introduce tu NIF/DNI en la casilla del solicitante.\n2. Marca 'Parcela' (o 'Bien Inmueble').\n3. Pega la referencia para descargar la Ficha Oficial.`
+          `Referencia Catastral:\n${cleanRef}${dni ? `\n\nNIF solicitante: ${dni}` : ''}\n\nEn la Sede de Bizkaia:\n1. Pega tu NIF en la casilla del solicitante.\n2. Marca 'Parcela' (o 'Bien Inmueble').\n3. Pega la referencia para descargar la Ficha Oficial.`
         );
       } catch (e) {}
     } else if (item.subareaCode && item.ref20 && (selectedRegion === 'VI' || selectedRegion === 'SS')) {
@@ -850,7 +885,7 @@ export default function App() {
         Alert.alert('Copiado', `Referencia copiada al portapapeles:\n${item.ref20}\n\nPuedes usar "Buscar en página" para localizarla.`);
       } catch (e) {}
     }
-    await cadastreService.openOfficialFicha(ref, item.del, item.mun, item.parCode, item.subareaCode, selectedRegion, item.polCode);
+    await cadastreService.openOfficialFicha(ref, item.del, item.mun, item.parCode, item.subareaCode, selectedRegion, item.polCode, dni);
   };
 
   // Obtener datos de parcelas e inmuebles
@@ -869,7 +904,7 @@ export default function App() {
     }
 
     try {
-      const data = await cadastreService.fetchFullParcelDetails(refCat, lat, lon, targetRegion);
+      const data = await cadastreService.fetchFullParcelDetails(refCat, lat, lon, targetRegion, savedDni);
       setSubparcels(data.subparcels || []);
       setParcelDetails(data.parcelDetails);
 
@@ -1594,6 +1629,63 @@ export default function App() {
             <TouchableOpacity style={styles.modalAcceptBtn} onPress={() => setShowLayersModal(false)}>
               <Text style={styles.modalAcceptBtnText}>Aceptar</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal para Guardar DNI / NIF para consultas de Bizkaia */}
+      <Modal
+        visible={dniModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setDniModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.layersModalCard, { padding: 20 }]}>
+            <View style={styles.layersModalHeader}>
+              <Text style={styles.layersModalTitle}>🆔 NIF / DNI Solicitante</Text>
+              <TouchableOpacity onPress={() => setDniModalVisible(false)} style={styles.modalCloseBtn}>
+                <Text style={styles.modalCloseBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ fontSize: 13, color: '#555', marginVertical: 10, lineHeight: 18 }}>
+              La Sede Oficial de Bizkaia requiere el NIF del solicitante para generar y descargar fichas catastrales oficiales.
+            </Text>
+            <TextInput
+              style={{
+                borderWidth: 1.5,
+                borderColor: '#0066cc',
+                borderRadius: 8,
+                padding: 12,
+                fontSize: 16,
+                fontWeight: 'bold',
+                letterSpacing: 2,
+                textAlign: 'center',
+                backgroundColor: '#f8fafd',
+                color: '#111',
+                marginVertical: 10
+              }}
+              placeholder="Ej: 12345678Z"
+              placeholderTextColor="#999"
+              value={dniInput}
+              onChangeText={setDniInput}
+              autoCapitalize="characters"
+              maxLength={9}
+            />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+              <TouchableOpacity
+                style={[styles.modalAcceptBtn, { flex: 1, backgroundColor: '#888', marginTop: 0 }]}
+                onPress={() => setDniModalVisible(false)}
+              >
+                <Text style={styles.modalAcceptBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalAcceptBtn, { flex: 2, marginTop: 0 }]}
+                onPress={() => saveUserDni(dniInput)}
+              >
+                <Text style={styles.modalAcceptBtnText}>Guardar y Abrir</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>

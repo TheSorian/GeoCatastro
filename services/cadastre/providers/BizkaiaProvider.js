@@ -66,7 +66,7 @@ export class BizkaiaProvider {
   /**
    * Obtiene los detalles completos de la parcela e inmuebles/subparcelas
    */
-  async fetchFullParcelDetails(refCat, lat, lon) {
+  async fetchFullParcelDetails(refCat, lat, lon, userDni = '12345678Z') {
     try {
       let results = null;
       if (lat && lon) {
@@ -102,8 +102,23 @@ export class BizkaiaProvider {
         if (calleLayer?.attributes?.Texto) calle = calleLayer.attributes.Texto.trim();
         if (portalLayer?.attributes?.Texto) portal = portalLayer.attributes.Texto.trim();
 
-        // 1. Consultar Construcciones / Edificios en la parcela
+        // 1. Consultar Bienes Inmuebles oficiales de la Diputación Foral de Bizkaia
         if (cMun && cPol && cPar) {
+          try {
+            const officialInmuebles = await this.queryOfficialBienesInmuebles(cMun, cPol, cPar, userDni || '12345678Z');
+            if (officialInmuebles && officialInmuebles.length > 0) {
+              subparcels = officialInmuebles;
+              if (officialInmuebles[0]?.address) {
+                calle = officialInmuebles[0].address;
+              }
+            }
+          } catch (eInm) {
+            console.warn('Error consultando Bienes Inmuebles en Bizkaia:', eInm);
+          }
+        }
+
+        // 2. Si no se obtuvieron bienes inmuebles, consultar Construcciones / Edificios
+        if (subparcels.length === 0 && cMun && cPol && cPar) {
           try {
             const edifUrl = `https://geo.bizkaia.eus/arcgisserverinspire/rest/services/Catastro_O4_ServiciosMapas/GC_Vigente_Sin_Ortos/MapServer/118/query?where=Codigo_Municipio%3D${parseInt(cMun, 10)}+AND+Codigo_Poligono%3D${parseInt(cPol, 10)}+AND+Codigo_Parcela%3D${parseInt(cPar, 10)}&outFields=*&returnGeometry=false&f=json`;
             const edifRes = await fetch(edifUrl);
@@ -153,29 +168,31 @@ export class BizkaiaProvider {
           }
         }
 
-        // 2. Extraer Subparcelas
-        const subLayers = results.filter(r => r.layerName === 'Subparcelas consultas' || r.layerName === 'Subparcelas tipo');
-        for (const sub of subLayers) {
-          const attr = sub.attributes || {};
-          const numSub = attr.Codigo_Subparcela || '1';
-          const nat = attr.Codigo_Naturaleza || 'Urb';
-          const supSub = attr['SHAPE.STArea()'] ? `${Math.round(parseFloat(attr['SHAPE.STArea()'].replace(',', '.')))} m²` : '';
-          const subId = `${cMun}${cPol}${cPar}_S${numSub}`;
+        // 3. Si aún no hay elementos, extraer Subparcelas
+        if (subparcels.length === 0) {
+          const subLayers = results.filter(r => r.layerName === 'Subparcelas consultas' || r.layerName === 'Subparcelas tipo');
+          for (const sub of subLayers) {
+            const attr = sub.attributes || {};
+            const numSub = attr.Codigo_Subparcela || '1';
+            const nat = attr.Codigo_Naturaleza || 'Urb';
+            const supSub = attr['SHAPE.STArea()'] ? `${Math.round(parseFloat(attr['SHAPE.STArea()'].replace(',', '.')))} m²` : '';
+            const subId = `${cMun}${cPol}${cPar}_S${numSub}`;
 
-          subparcels.push({
-            id: subId,
-            ref20: `${cMun} ${cPol} ${cPar} S${String(numSub).padStart(2, '0')}`,
-            cargo: `S${numSub}`,
-            address: [calle, portal ? `Nº ${portal}` : ''].filter(Boolean).join(' ') || `Parcela ${parseInt(cPar, 10)}, Polígono ${parseInt(cPol, 10)}`,
-            interior: `Subparcela ${numSub} (${nat}) ${supSub}`.trim(),
-            muni: cMun,
-            prov: 'Bizkaia',
-            del: '48',
-            mun: cMun,
-            parCode: cPar,
-            polCode: cPol,
-            subareaCode: numSub
-          });
+            subparcels.push({
+              id: subId,
+              ref20: `${cMun} ${cPol} ${cPar} S${String(numSub).padStart(2, '0')}`,
+              cargo: `S${numSub}`,
+              address: [calle, portal ? `Nº ${portal}` : ''].filter(Boolean).join(' ') || `Parcela ${parseInt(cPar, 10)}, Polígono ${parseInt(cPol, 10)}`,
+              interior: `Subparcela ${numSub} (${nat}) ${supSub}`.trim(),
+              muni: cMun,
+              prov: 'Bizkaia',
+              del: '48',
+              mun: cMun,
+              parCode: cPar,
+              polCode: cPol,
+              subareaCode: numSub
+            });
+          }
         }
       }
 
@@ -247,8 +264,181 @@ export class BizkaiaProvider {
   }
 
   /**
-   * Abre la Ficha Oficial en la Sede Electrónica de Bizkaia (eBizkaia)
+   * Consulta el listado oficial de Bienes Inmuebles (pisos, locales, garajes) en la Sede de Bizkaia
    */
+  async queryOfficialBienesInmuebles(cMun, cPol, cPar, userDni = '12345678Z') {
+    try {
+      const parcelStr = `${cMun} ${cPol} ${cPar}`;
+      const getRes = await fetch('https://appsec.ebizkaia.eus/O4GC000C/vistas/fichaCatastral.xhtml?language=es', {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+      });
+      const cookie = getRes.headers.get('set-cookie');
+      const html = await getRes.text();
+      let vsMatch = html.match(/name="javax\.faces\.ViewState"[^>]+value="([^"]+)"/);
+      let viewState = vsMatch ? vsMatch[1] : '';
+
+      if (!viewState) return [];
+
+      // 1. Validar solicitante
+      let params = new URLSearchParams();
+      params.append('javax.faces.partial.ajax', 'true');
+      params.append('javax.faces.source', 'form1:rmBuscarSolicitanteFichaCatastral');
+      params.append('javax.faces.partial.execute', 'form1:panelSolicitanteFichaCatastral');
+      params.append('javax.faces.partial.render', 'form1:panelSolicitanteFichaCatastral form1:personaTable');
+      params.append('form1:textNifSolicitanteFichaCatastral', userDni);
+      params.append('form1:panelBusquedaNifCheckSolicitanteFichaCatastral', '1');
+      params.append('form1', 'form1');
+      params.append('javax.faces.ViewState', viewState);
+
+      let postRes = await fetch('https://appsec.ebizkaia.eus/O4GC000C/vistas/fichaCatastral.xhtml?language=es', {
+        method: 'POST',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'Faces-Request': 'partial/ajax',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Cookie': cookie || ''
+        },
+        body: params.toString()
+      });
+      let xml = await postRes.text();
+      vsMatch = xml.match(/<update id="j_id1:javax\.faces\.ViewState:0"><!\[CDATA\[(.*?)\]\]><\/update>/);
+      if (vsMatch) viewState = vsMatch[1];
+
+      // 2. Cambiar a modo Parcela
+      params = new URLSearchParams();
+      params.append('javax.faces.partial.ajax', 'true');
+      params.append('javax.faces.source', 'form1:consolePublico');
+      params.append('javax.faces.partial.execute', 'form1:consolePublico');
+      params.append('javax.faces.partial.render', 'form1:panelSeleccionFichaCatastral form1:panelBotoneraBuscar');
+      params.append('form1:consolePublico', 'PAR');
+      params.append('form1:textNifSolicitanteFichaCatastral', userDni);
+      params.append('form1:panelBusquedaNifCheckSolicitanteFichaCatastral', '1');
+      params.append('form1', 'form1');
+      params.append('javax.faces.ViewState', viewState);
+
+      postRes = await fetch('https://appsec.ebizkaia.eus/O4GC000C/vistas/fichaCatastral.xhtml?language=es', {
+        method: 'POST',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'Faces-Request': 'partial/ajax',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Cookie': cookie || ''
+        },
+        body: params.toString()
+      });
+      xml = await postRes.text();
+      vsMatch = xml.match(/<update id="j_id1:javax\.faces\.ViewState:0"><!\[CDATA\[(.*?)\]\]><\/update>/);
+      if (vsMatch) viewState = vsMatch[1];
+
+      // 3. Ejecutar Búsqueda de Parcela
+      params = new URLSearchParams();
+      params.append('javax.faces.partial.ajax', 'true');
+      params.append('javax.faces.source', 'form1:cmdButtonBuscar');
+      params.append('javax.faces.partial.execute', '@all');
+      params.append('javax.faces.partial.render', 'form1:facesMessages form1:panelResultados form1:resultadopdf');
+      params.append('form1:cmdButtonBuscar', 'form1:cmdButtonBuscar');
+      params.append('form1:opcion', 'BI');
+      params.append('form1:grafico', 'CONGRAF');
+      params.append('form1:textNifSolicitanteFichaCatastral', userDni);
+      params.append('form1:panelBusquedaNifCheckSolicitanteFichaCatastral', '1');
+      params.append('form1:consolePublico', 'PAR');
+      params.append('form1:parcelaTipoEntrada', 'TEXTO');
+      params.append('form1:textParcela', parcelStr);
+      params.append('form1', 'form1');
+      params.append('javax.faces.ViewState', viewState);
+
+      postRes = await fetch('https://appsec.ebizkaia.eus/O4GC000C/vistas/fichaCatastral.xhtml?language=es', {
+        method: 'POST',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'Faces-Request': 'partial/ajax',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Cookie': cookie || ''
+        },
+        body: params.toString()
+      });
+      xml = await postRes.text();
+      vsMatch = xml.match(/<update id="j_id1:javax\.faces\.ViewState:0"><!\[CDATA\[(.*?)\]\]><\/update>/);
+      if (vsMatch) viewState = vsMatch[1];
+
+      // 4. Crear Árbol de Inmuebles
+      params = new URLSearchParams();
+      params.append('javax.faces.partial.ajax', 'true');
+      params.append('javax.faces.source', 'form1:j_idt63');
+      params.append('javax.faces.partial.execute', 'form1:j_idt63');
+      params.append('javax.faces.partial.render', 'form1:resultadopdf');
+      params.append('form1:j_idt63', 'form1:j_idt63');
+      params.append('form1', 'form1');
+      params.append('javax.faces.ViewState', viewState);
+
+      postRes = await fetch('https://appsec.ebizkaia.eus/O4GC000C/vistas/fichaCatastral.xhtml?language=es', {
+        method: 'POST',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'Faces-Request': 'partial/ajax',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Cookie': cookie || ''
+        },
+        body: params.toString()
+      });
+      xml = await postRes.text();
+
+      // Parsear filas del árbol
+      const items = [];
+      const rowRegex = /<tr[^>]+data-rk="([^"]+)"[^>]*>(.*?)<\/tr>/gs;
+      let match;
+      let idx = 1;
+      let parentRef = '';
+      while ((match = rowRegex.exec(xml)) !== null) {
+        const rowContent = match[2];
+        const tds = [];
+        const tdRegex = /<td[^>]*>(.*?)<\/td>/gs;
+        let tdMatch;
+        while ((tdMatch = tdRegex.exec(rowContent)) !== null) {
+          tds.push(tdMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+        }
+
+        if (tds.length >= 5) {
+          const rawRef = tds[1];
+          if (rawRef && rawRef.length >= 12) {
+            parentRef = rawRef;
+          }
+          const itemRef = rawRef || (parentRef ? `${parentRef.substring(0, 12)}${String(idx).padStart(4, '0')}` : `${cMun}${cPol}${cPar}${String(idx).padStart(4, '0')}`);
+          const address = tds[2];
+          const door = tds[3];
+          const numFijo = tds[4];
+
+          const formattedRef16 = itemRef.length >= 16 
+            ? `${itemRef.substring(0, 3)} ${itemRef.substring(3, 7)} ${itemRef.substring(7, 12)} ${itemRef.substring(12, 16)}`
+            : itemRef;
+
+          items.push({
+            id: `BI_${itemRef}_${idx}`,
+            ref20: formattedRef16,
+            cargo: String(idx).padStart(4, '0'),
+            address: address || `Parcela ${cPar}`,
+            interior: [door, numFijo ? `· Nº Fijo: ${numFijo}` : ''].filter(Boolean).join(' '),
+            muni: cMun,
+            prov: 'Bizkaia',
+            del: '48',
+            mun: cMun,
+            parCode: cPar,
+            polCode: cPol,
+            subareaCode: String(idx)
+          });
+          idx++;
+        }
+      }
+      return items;
+    } catch (e) {
+      console.warn('Error consultando Bienes Inmuebles oficial Bizkaia:', e);
+      return [];
+    }
+  }
   async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, polCode) {
     try {
       // Ficha Catastral oficial de Bizkaia (permite consulta por NIF + Parcela / Bien Inmueble)

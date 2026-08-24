@@ -74,20 +74,20 @@ class CadastreService {
     return this.providers[region] || this.providers['ES'];
   }
 
-  async fetchFullParcelDetails(refCat, lat, lon, region = 'ES') {
-    return this.getProvider(region).fetchFullParcelDetails(refCat, lat, lon);
+  async fetchFullParcelDetails(refCat, lat, lon, region = 'ES', userDni = '') {
+    return this.getProvider(region).fetchFullParcelDetails(refCat, lat, lon, userDni);
   }
 
-  async fetchParcelByCoords(lat, lon, region = 'ES') {
-    return this.getProvider(region).fetchParcelByCoords(lat, lon);
+  async fetchParcelByCoords(lat, lon, region = 'ES', userDni = '') {
+    return this.getProvider(region).fetchParcelByCoords(lat, lon, userDni);
   }
 
   async getCoordsFromRC(rc, region = 'ES') {
     return this.getProvider(region).getCoordsFromRC(rc);
   }
 
-  async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, region = 'ES', polCode = '') {
-    return this.getProvider(region).openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, polCode);
+  async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, region = 'ES', polCode = '', userDni = '') {
+    return this.getProvider(region).openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, polCode, userDni);
   }
 
   async fetchParcelGeometry(refCat, lat, lon, region = 'ES') {
