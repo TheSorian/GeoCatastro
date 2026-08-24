@@ -250,7 +250,7 @@ export class BizkaiaProvider {
    * Capas WMS para Bizkaia (solo referencia, el Export usa la URL directamente)
    */
   getWMSLayers() {
-    return 'show:38,39,40,42';
+    return 'show:38,42';
   }
 
   /**

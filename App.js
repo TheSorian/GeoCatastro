@@ -452,9 +452,18 @@ export default function App() {
         var catastroVisible = true;
         var catastroOpacity = 0.85;
 
-        // Capa ArcGIS Export personalizada (compatible XYZ con bbox calculado por tile)
+        // Capa ArcGIS Export personalizada ultrarrápida (compatible XYZ con bbox calculado por tile)
         var ArcGISExportLayer = L.GridLayer.extend({
-          options: { tileSize: 256, opacity: 0.85, zIndex: 10 },
+          options: {
+            tileSize: 512,
+            opacity: 0.85,
+            zIndex: 10,
+            updateWhenIdle: true,
+            updateInterval: 100,
+            keepBuffer: 6,
+            maxNativeZoom: 19,
+            maxZoom: 24
+          },
           createTile: function(coords, done) {
             var tile = document.createElement('img');
             var tileSize = this.getTileSize().x;
@@ -467,7 +476,7 @@ export default function App() {
             var minY = R - (coords.y + 1) * ts;
             var bbox = minX + ',' + minY + ',' + maxX + ',' + maxY;
             var baseUrl = currentWMSUrl; // Se reusa currentWMSUrl para la base
-            tile.src = baseUrl + '?bbox=' + bbox + '&bboxSR=3857&layers=show%3A38,39,40,42&size=' + tileSize + ',' + tileSize + '&imageSR=3857&format=png32&transparent=true&f=image&dpi=96';
+            tile.src = baseUrl + '?bbox=' + bbox + '&bboxSR=3857&layers=show%3A38,42&size=' + tileSize + ',' + tileSize + '&imageSR=3857&format=png8&transparent=true&f=image&dpi=96';
             tile.onload = function() { done(null, tile); };
             tile.onerror = function(e) { done(e, tile); };
             tile.style.opacity = catastroOpacity;
@@ -490,7 +499,16 @@ export default function App() {
         }
 
         function buildExportLayer() {
-          return new ArcGISExportLayer({ opacity: catastroOpacity, zIndex: 10 });
+          return new ArcGISExportLayer({
+            tileSize: 512,
+            opacity: catastroOpacity,
+            zIndex: 10,
+            updateWhenIdle: true,
+            updateInterval: 100,
+            keepBuffer: 6,
+            maxNativeZoom: 19,
+            maxZoom: 24
+          });
         }
 
         // Inicializar capa WMS por defecto
