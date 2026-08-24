@@ -247,19 +247,19 @@ export class BizkaiaProvider {
   }
 
   /**
-   * Abre el Visor / Ficha oficial en la Sede Electrónica de Bizkaia (eBizkaia)
+   * Abre la Ficha Oficial en la Sede Electrónica de Bizkaia (eBizkaia)
    */
   async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, polCode) {
     try {
-      // Visor Catastral completo de Bizkaia con submenús de Bienes Inmuebles, Construcciones, Subparcelas y Elementos
-      const url = 'https://appsec.ebizkaia.eus/O4GC000C/vistas/visor.xhtml?language=es';
+      // Ficha Catastral oficial de Bizkaia (permite consulta por NIF + Parcela / Bien Inmueble)
+      const url = 'https://appsec.ebizkaia.eus/O4GC000C/vistas/fichaCatastral.xhtml?language=es';
       await WebBrowser.openBrowserAsync(url, {
         toolbarColor: '#cc0000', // Rojo característico de Bizkaia
         controlsColor: '#ffffff',
         showTitle: true,
       });
     } catch (e) {
-      Alert.alert('Error', 'No se pudo abrir el Visor Catastral de Bizkaia.');
+      Alert.alert('Error', 'No se pudo abrir la Ficha Catastral de Bizkaia.');
     }
   }
 
