@@ -1647,7 +1647,7 @@ export default function App() {
             <>
               <View style={styles.badgeRow}>
                 <View style={styles.badge}>
-                  <Text style={styles.badgeText}>🏢 {parcelDetails.count} Inmueble(s) / Subparcelas</Text>
+                  <Text style={styles.badgeText}>🏢 {parcelDetails.count} Inmueble(s)</Text>
                 </View>
               </View>
 
@@ -1690,7 +1690,7 @@ export default function App() {
                     }}
                   >
                     <Text style={styles.btnSecondaryText}>
-                      {showSubparcels ? '▲ Ocultar Pisos / Locales' : '▼ Ver Lista de Pisos / Locales'}
+                      {showSubparcels ? '▲ Ocultar Inmuebles' : '▼ Ver Inmuebles'}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -1699,7 +1699,7 @@ export default function App() {
               {/* Lista Desplegable de Subparcelas / Pisos de 20 dígitos */}
               {showSubparcels && subparcels.length > 1 && (
                 <View style={styles.subparcelsContainer}>
-                  <Text style={styles.subparcelsHeader}>Selecciona un piso para abrir su Ficha:</Text>
+                  <Text style={styles.subparcelsHeader}>Selecciona un inmueble para abrir su Ficha:</Text>
                   
                   <TextInput
                     style={styles.subparcelFilterInput}
