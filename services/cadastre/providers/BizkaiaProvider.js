@@ -196,19 +196,19 @@ export class BizkaiaProvider {
   }
 
   /**
-   * Abre la ficha oficial en la Sede / Visor Catastral de Bizkaia
+   * Abre la ficha oficial en la Sede Electrónica de Bizkaia (eBizkaia)
    */
   async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, polCode) {
     try {
-      // Visor Catastral de Bizkaia
-      const url = 'https://web.bizkaia.eus/es/visor-catastral';
+      // Ficha Catastral oficial de la Diputación Foral de Bizkaia
+      const url = 'https://appsec.ebizkaia.eus/O4GC000C/vistas/fichaCatastral.xhtml?language=es';
       await WebBrowser.openBrowserAsync(url, {
         toolbarColor: '#cc0000', // Rojo característico de Bizkaia
         controlsColor: '#ffffff',
         showTitle: true,
       });
     } catch (e) {
-      Alert.alert('Error', 'No se pudo abrir el Visor Catastral de Bizkaia.');
+      Alert.alert('Error', 'No se pudo abrir la Ficha Catastral de Bizkaia.');
     }
   }
 
