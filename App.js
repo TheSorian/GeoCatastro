@@ -178,7 +178,8 @@ export default function App() {
           webViewRef.current?.postMessage(JSON.stringify({
             type: 'CHANGE_REGION',
             wmsUrl: cadastreService.getWMSUrl(region),
-            wmsLayers: cadastreService.getWMSLayers(region)
+            wmsLayers: cadastreService.getWMSLayers(region),
+            layerType: cadastreService.getWMSLayerType(region)
           }));
         }
 
