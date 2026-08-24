@@ -887,44 +887,47 @@ export default function App() {
         }
       }, true);
 
-      // Vigilante continuo de PDFs generados en la página (iframes, objects, embeds)
+      // Vigilante continuo de PDFs generados en la página (SOLO cuando el certificado está listo tras el Captcha)
       setInterval(function() {
         try {
-          var mediaEls = document.querySelectorAll('iframe, object, embed');
-          for (var m = 0; m < mediaEls.length; m++) {
-            var el = mediaEls[m];
-            var src = el.src || el.data;
-            if (src && src.length > 5 && src !== 'about:blank') {
-              var fullSrc = src.startsWith('/') ? (window.location.origin + src) : src;
-              if (!el.getAttribute('data-notified')) {
-                el.setAttribute('data-notified', 'true');
+          // 1. Buscar en la pestaña de documento idTabResultadopdfCDocumentoCodigo (se crea tras validar el captcha)
+          var docTab = document.getElementById('form1:resultadopdf:idTabResultadopdfCDocumentoCodigo');
+          if (docTab) {
+            var ifr = docTab.querySelector('iframe, object, embed');
+            var pSrc = ifr ? (ifr.src || ifr.data) : '';
+            if (pSrc && !pSrc.includes('recaptcha') && !pSrc.includes('google.com') && !pSrc.includes('gstatic')) {
+              var fullPSrc = pSrc.startsWith('/') ? (window.location.origin + pSrc) : pSrc;
+              
+              if (!docTab.getAttribute('data-btn-added')) {
+                docTab.setAttribute('data-btn-added', 'true');
+                var banner = document.createElement('div');
+                banner.style.cssText = 'padding:14px;background:#fef2f2;border:2px solid #ef4444;border-radius:10px;margin:12px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1);';
+                banner.innerHTML = '<p style="font-weight:bold;color:#991b1b;margin-bottom:8px;font-size:15px;">📄 Ficha Catastral Oficial Generada</p>' +
+                  '<a href="' + fullPSrc + '" target="_blank" style="display:inline-block;background:#cc0000;color:#fff;font-weight:bold;padding:12px 24px;border-radius:8px;text-decoration:none;font-size:15px;box-shadow:0 3px 6px rgba(0,0,0,0.2);">📥 DESCARGAR / ABRIR PDF</a>';
+                docTab.insertBefore(banner, docTab.firstChild);
+                
                 if (window.ReactNativeWebView) {
                   window.ReactNativeWebView.postMessage(JSON.stringify({
                     type: 'PDF_READY',
-                    url: fullSrc
+                    url: fullPSrc
                   }));
                 }
               }
             }
           }
 
-          var docTab = document.getElementById('form1:resultadopdf:idTabResultadopdfCDocumentoCodigo');
-          if (docTab && !docTab.getAttribute('data-btn-added')) {
-            docTab.setAttribute('data-btn-added', 'true');
-            var ifr = docTab.querySelector('iframe, object, embed');
-            var pSrc = ifr ? (ifr.src || ifr.data) : '';
-            if (pSrc) {
-              var fullPSrc = pSrc.startsWith('/') ? (window.location.origin + pSrc) : pSrc;
-              var banner = document.createElement('div');
-              banner.style.cssText = 'padding:14px;background:#fef2f2;border:2px solid #ef4444;border-radius:10px;margin:12px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1);';
-              banner.innerHTML = '<p style="font-weight:bold;color:#991b1b;margin-bottom:8px;font-size:15px;">📄 Ficha Catastral Oficial Generada</p>' +
-                '<a href="' + fullPSrc + '" target="_blank" style="display:inline-block;background:#cc0000;color:#fff;font-weight:bold;padding:12px 24px;border-radius:8px;text-decoration:none;font-size:15px;box-shadow:0 3px 6px rgba(0,0,0,0.2);">📥 DESCARGAR / ABRIR PDF</a>';
-              docTab.insertBefore(banner, docTab.firstChild);
-              
+          // 2. Buscar enlaces o elementos directos con extensión .pdf generados
+          var pdfLinks = document.querySelectorAll('a[href*=".pdf"], iframe[src*=".pdf"], object[data*=".pdf"], embed[src*=".pdf"]');
+          for (var p = 0; p < pdfLinks.length; p++) {
+            var pEl = pdfLinks[p];
+            var linkSrc = pEl.href || pEl.src || pEl.data;
+            if (linkSrc && !linkSrc.includes('recaptcha') && !linkSrc.includes('google.com') && !linkSrc.includes('gstatic') && !pEl.getAttribute('data-pdf-notified')) {
+              pEl.setAttribute('data-pdf-notified', 'true');
+              var fullLinkSrc = linkSrc.startsWith('/') ? (window.location.origin + linkSrc) : linkSrc;
               if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({
                   type: 'PDF_READY',
-                  url: fullPSrc
+                  url: fullLinkSrc
                 }));
               }
             }
@@ -1047,6 +1050,10 @@ export default function App() {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'PDF_READY' && data.url) {
+        const urlLower = data.url.toLowerCase();
+        if (urlLower.includes('recaptcha') || urlLower.includes('google.com') || urlLower.includes('gstatic') || urlLower.includes('about:blank')) {
+          return;
+        }
         setFichaPdfUrl(data.url);
         Alert.alert(
           'Ficha Catastral Generada',
