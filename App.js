@@ -76,6 +76,7 @@ export default function App() {
   const [fichaWebViewUrl, setFichaWebViewUrl] = useState('');
   const [fichaInjectedJs, setFichaInjectedJs] = useState('');
   const [fichaTitle, setFichaTitle] = useState('Ficha Catastral');
+  const [fichaPdfUrl, setFichaPdfUrl] = useState(null);
 
   const webViewRef = useRef(null);
   const typingTimer = useRef(null);
@@ -858,23 +859,78 @@ export default function App() {
       var targetDoor = ${JSON.stringify(targetDoor)};
       var targetCargo = ${JSON.stringify(targetCargo)};
       
-      // Sobrescribir window.open para que abra en la misma vista y permita descargas
+      // Sobrescribir window.open para que abra en la misma vista o descargue
       window.open = function(url) {
         if (url) {
+          if (url.includes('pdf') || url.includes('Certificado') || url.includes('descarga')) {
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PDF_READY', url: url }));
+            }
+          }
           window.location.href = url;
         }
         return window;
       };
 
-      // Interceptar enlaces de descarga para forzar apertura directa
+      // Interceptar enlaces de descarga para forzar apertura directa y avisar a la app
       document.addEventListener('click', function(e) {
         var target = e.target.closest('a');
         if (target && target.href) {
+          if (target.href.includes('pdf') || target.href.includes('Certificado') || target.href.includes('descarga')) {
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PDF_READY', url: target.href }));
+            }
+          }
           if (target.target === '_blank') {
             target.target = '_self';
           }
         }
       }, true);
+
+      // Vigilante continuo de PDFs generados en la página (iframes, objects, embeds)
+      setInterval(function() {
+        try {
+          var mediaEls = document.querySelectorAll('iframe, object, embed');
+          for (var m = 0; m < mediaEls.length; m++) {
+            var el = mediaEls[m];
+            var src = el.src || el.data;
+            if (src && src.length > 5 && src !== 'about:blank') {
+              var fullSrc = src.startsWith('/') ? (window.location.origin + src) : src;
+              if (!el.getAttribute('data-notified')) {
+                el.setAttribute('data-notified', 'true');
+                if (window.ReactNativeWebView) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'PDF_READY',
+                    url: fullSrc
+                  }));
+                }
+              }
+            }
+          }
+
+          var docTab = document.getElementById('form1:resultadopdf:idTabResultadopdfCDocumentoCodigo');
+          if (docTab && !docTab.getAttribute('data-btn-added')) {
+            docTab.setAttribute('data-btn-added', 'true');
+            var ifr = docTab.querySelector('iframe, object, embed');
+            var pSrc = ifr ? (ifr.src || ifr.data) : '';
+            if (pSrc) {
+              var fullPSrc = pSrc.startsWith('/') ? (window.location.origin + pSrc) : pSrc;
+              var banner = document.createElement('div');
+              banner.style.cssText = 'padding:14px;background:#fef2f2;border:2px solid #ef4444;border-radius:10px;margin:12px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1);';
+              banner.innerHTML = '<p style="font-weight:bold;color:#991b1b;margin-bottom:8px;font-size:15px;">📄 Ficha Catastral Oficial Generada</p>' +
+                '<a href="' + fullPSrc + '" target="_blank" style="display:inline-block;background:#cc0000;color:#fff;font-weight:bold;padding:12px 24px;border-radius:8px;text-decoration:none;font-size:15px;box-shadow:0 3px 6px rgba(0,0,0,0.2);">📥 DESCARGAR / ABRIR PDF</a>';
+              docTab.insertBefore(banner, docTab.firstChild);
+              
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'PDF_READY',
+                  url: fullPSrc
+                }));
+              }
+            }
+          }
+        } catch (e) {}
+      }, 500);
 
       function fillField(id, val) {
         var el = document.getElementById(id);
@@ -985,6 +1041,31 @@ export default function App() {
     })();
     true;
   `;
+
+  // Manejador de eventos desde el WebView de Ficha (Detección de PDF)
+  const handleFichaMessage = (event) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'PDF_READY' && data.url) {
+        setFichaPdfUrl(data.url);
+        Alert.alert(
+          'Ficha Catastral Generada',
+          'El documento PDF oficial de la Ficha Catastral está listo.',
+          [
+            { text: 'Ver en App', style: 'cancel' },
+            {
+              text: '📥 Descargar / Abrir PDF',
+              onPress: () => {
+                Linking.openURL(data.url).catch(() => {
+                  WebBrowser.openBrowserAsync(data.url).catch(() => {});
+                });
+              }
+            }
+          ]
+        );
+      }
+    } catch (e) {}
+  };
 
   // Guardar DNI del usuario en almacenamiento local
   const saveUserDni = async (dniToSave) => {
@@ -1869,26 +1950,49 @@ export default function App() {
             paddingVertical: 12,
             backgroundColor: '#cc0000'
           }}>
-            <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>
+            <Text style={{ color: '#fff', fontSize: 15, fontWeight: 'bold', flex: 1 }} numberOfLines={1}>
               {fichaTitle}
             </Text>
-            <TouchableOpacity
-              onPress={() => setFichaWebViewVisible(false)}
-              style={{
-                backgroundColor: 'rgba(255,255,255,0.25)',
-                borderRadius: 16,
-                paddingHorizontal: 12,
-                paddingVertical: 6
-              }}
-            >
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>Cerrar ✕</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {fichaPdfUrl && (
+                <TouchableOpacity
+                  onPress={() => {
+                    Linking.openURL(fichaPdfUrl).catch(() => {
+                      WebBrowser.openBrowserAsync(fichaPdfUrl).catch(() => {});
+                    });
+                  }}
+                  style={{
+                    backgroundColor: '#fff',
+                    borderRadius: 16,
+                    paddingHorizontal: 10,
+                    paddingVertical: 5
+                  }}
+                >
+                  <Text style={{ color: '#cc0000', fontWeight: 'bold', fontSize: 12 }}>📥 Descargar PDF</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                onPress={() => {
+                  setFichaWebViewVisible(false);
+                  setFichaPdfUrl(null);
+                }}
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.25)',
+                  borderRadius: 16,
+                  paddingHorizontal: 12,
+                  paddingVertical: 6
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>Cerrar ✕</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           <View style={{ flex: 1, backgroundColor: '#fff' }}>
             {fichaWebViewVisible && (
               <WebView
                 source={{ uri: fichaWebViewUrl }}
                 injectedJavaScript={fichaInjectedJs}
+                onMessage={handleFichaMessage}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
                 allowFileAccess={true}
