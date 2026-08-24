@@ -26,7 +26,8 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Permite a GeoCatastro acceder a tu ubicación actual para situarte en el mapa y cargar el catastro correspondiente."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "ios": {
       "supportsTablet": true,
