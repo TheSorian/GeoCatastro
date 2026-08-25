@@ -10,37 +10,25 @@
 
 ## 🌟 Características Principales
 
-* 🔍 **Ultra-Zoom Quirúrgico (Hasta Nivel 24):**
-  - Acercamiento ultra-detallado con resolución inferior a **$1\text{ cm/píxel}$** ($1\text{ m} > 140\text{ px}$).
-  - Sobremuestreo suave de ortofotos aéreas PNOA y mapas de satélite sin cortes ni cuadros grises.
-  - Renderizado vectorial dinámico del Catastro WMS nítido y perfecto a cualquier nivel de zoom.
-* 🧲 **Ajuste Magnético a Esquinas (*Snapping*):**
-  - Atracción magnética inteligente a las esquinas y vértices oficiales de las parcelas al tocar la pantalla.
-  - Integración directa con las geometrías de la **Sede Electrónica del Catastro (INSPIRE WFS)** y **Navarra (IDENA WFS)**.
-  - Botón **🧲 Imán: SÍ / NO** en la barra de herramientas para medir con enganche automático o trazo libre.
-* 🗺️ **Selector Avanzado de Capas y Mapas Base:**
-  - **Mapas Base Conmutables:** Callejero (*OpenStreetMap*), Topográfico Oficial (*IGN Base*), Ortofoto Aérea de máxima resolución (*IGN PNOA*) y Satélite (*Esri World Imagery*).
-  - **Capa Catastral Unificada ("Catastro"):** Conmutación automática inteligente entre la Sede Estatal (OVC) y Navarra (IDENA), con control de visibilidad On/Off y regulación de opacidad (25%, 50%, 75%, 100%) para superponer lindes sobre fotos aéreas.
-  - **Rotulación IGN:** Capa superpuesta opcional de toponimia y nombres de calles sobre ortofotos aéreas.
-* 📏 **Herramientas de Medición (Distancias y Áreas):**
-  - **Medición de Distancias:** Trazado de líneas rectas y polilíneas con cálculo geodésico exacto en metros ($m$) y kilómetros ($km$).
-  - **Medición de Áreas y Perímetros:** Trazado de polígonos sobre parcelas con cálculo automático de superficie en metros cuadrados ($m^2$) y hectáreas ($ha$), además de perímetro.
-  - Panel flotante contextual con funciones de **Deshacer**, **Limpiar** y **Salir** sin interferir en las consultas catastrales.
-* 🔎 **Buscador Inteligente Multi-Criterio:**
-  - Búsqueda por **Dirección, Calle y Número**.
-  - Reconocimiento de **Pedanías, Barrios y Distritos** (ej: *Ocenilla, Cidones*).
-  - Búsqueda directa por **Referencia Catastral** (14 y 20 dígitos) preservando ceros iniciales.
-  - Búsqueda por **Coordenadas GPS** (Latitud, Longitud).
-* 🏢 **Inspector de Fincas y Subparcelas:**
-  - Soporte para **Edificios con División Horizontal** (muestra la lista completa de pisos, locales y trasteros de 20 dígitos).
-  - Soporte para **Fincas Únicas / Chalets / Naves**.
-* 📄 **Acceso Directo a Fichas Oficiales:**
-  - Apertura inmediata de la **Ficha Informativa Oficial del Inmueble** (`OVCConCiud.aspx`) con m² construidos, año y uso.
-  - Vista cartográfica de la **Parcela Base** (`mapa.aspx`).
-* 🕒 **Historial de Búsquedas Recientes:**
-  - Persistencia local mediante `AsyncStorage` con opción de borrado individual o completo.
-* 🔐 **Compilación Automatizada y Firma Permanente:**
-  - Integración Continua (CI/CD) con GitHub Actions para generar APKs firmados y actualizables sin necesidad de desinstalar.
+* 🗺️ **Visor de Mapas y Catastro:**
+  - Mapas base: Satélite (IGN PNOA, Esri), Topográfico y Callejero.
+  - Capa catastral interactiva (Sede Electrónica, Navarra, Bizkaia).
+  - Zoom ultra-detallado sin cortes.
+* 📏 **Herramientas de Medición:**
+  - Cálculo en tiempo real de distancias, áreas y perímetros.
+  - Ajuste magnético inteligente (*Snapping*) a los vértices oficiales de las parcelas.
+* 🔎 **Buscador Multi-Criterio:**
+  - Búsqueda por dirección, calle, número, o nombre de pueblo/pedanía.
+  - Búsqueda directa por Referencia Catastral.
+  - Búsqueda por coordenadas GPS.
+* 📄 **Fichas e Inmuebles:**
+  - Listado de subparcelas y división horizontal (pisos, locales, trasteros).
+  - Apertura directa de la **Ficha Informativa Oficial** del inmueble.
+  - **Generación y descarga de la Ficha en PDF nativo** para compartir (incluyendo soporte especial para Bizkaia).
+* ⚙️ **Otras Utilidades:**
+  - Historial persistente de búsquedas recientes.
+  - Guardado de DNI/NIF para autocompletar rápidamente el acceso a consultas protegidas.
+  - Actualizaciones automáticas (In-App) desde GitHub Releases.
 
 ---
 
