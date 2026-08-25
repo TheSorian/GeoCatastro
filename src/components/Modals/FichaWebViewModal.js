@@ -63,7 +63,12 @@ const FichaWebViewModal = ({
           {visible && (
             <WebView
               ref={webViewRef}
-              source={{ uri: url }}
+              source={{
+                uri: url,
+                headers: {
+                  'Referer': 'https://ssl6.gipuzkoa.eus/'
+                }
+              }}
               injectedJavaScript={injectedJs}
               injectedJavaScriptBeforeContentLoaded={injectedJs}
               injectedJavaScriptForMainFrameOnly={false}

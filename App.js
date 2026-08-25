@@ -629,8 +629,21 @@ export default function App() {
 
       setFichaTitle(title);
       setFichaInjectedJs(getGipuzkoaInjectedJs(fincaId, codDigito));
-      const pageType = isRustic ? 'rustica' : 'urbana';
-      setFichaWebViewUrl(`https://ssl6.gipuzkoa.eus/Catastro/tooltip/${pageType}.aspx?id=${encodeURIComponent(targetRef)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`);
+
+      let finalUrl = '';
+      if (fincaId) {
+        if (isRustic) {
+          const [pol, par] = targetRef.split('-');
+          finalUrl = `https://ssl7.gipuzkoa.net/OgasunaNet/Rustico/refMapa.asp?Cod_munic=${encodeURIComponent(munCode)}&poligono=${encodeURIComponent(pol || '01')}&parcela=${encodeURIComponent(par || '001')}&origen=unidad_grafica&Idioma=Cas`;
+        } else {
+          finalUrl = `https://ssl7.gipuzkoa.net/OgasunaNet/Catastro/refMapa.asp?Municipio=${encodeURIComponent(munCode)}&RefCatastral=${encodeURIComponent(targetRef)}&Calle=0470&Portal=017&Idioma=Cas`;
+        }
+      } else {
+        const pageType = isRustic ? 'rustica' : 'urbana';
+        finalUrl = `https://ssl6.gipuzkoa.eus/Catastro/tooltip/${pageType}.aspx?id=${encodeURIComponent(targetRef)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`;
+      }
+
+      setFichaWebViewUrl(finalUrl);
       setFichaWebViewVisible(true);
       return;
     }
