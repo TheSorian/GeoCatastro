@@ -1258,8 +1258,8 @@ export default function App() {
     
     if (item.subareaCode && item.ref20 && (selectedRegion === 'VI' || selectedRegion === 'SS')) {
       try {
-        await Clipboard.setStringAsync(item.ref20);
-        Alert.alert('Copiado', `Referencia copiada al portapapeles:\n${item.ref20}\n\nPuedes usar "Buscar en página" para localizarla.`);
+        Clipboard.setString(item.ref20);
+        Alert.alert('Copiado', `Referencia copiada al portapapeles:\n${item.ref20}\n\nPuedes usar "Buscar" en la web para localizarla.`);
       } catch (e) {}
     }
     await cadastreService.openOfficialFicha(ref, item.del, item.mun, item.parCode, item.subareaCode, selectedRegion, item.polCode, dni);

@@ -207,8 +207,8 @@ export class GipuzkoaProvider {
    */
   async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, polCode) {
     try {
-      // Apertura del visor geográfico oficial b5m de Gipuzkoa
-      const url = 'https://b5m.gipuzkoa.eus/web/es/visor';
+      // Apertura de la Sede Electrónica de Gipuzkoa
+      const url = 'https://egoitza.gipuzkoa.eus/es/catastro';
       await WebBrowser.openBrowserAsync(url, {
         toolbarColor: '#0055a5', // Azul oficial de Gipuzkoa
         controlsColor: '#ffffff',
