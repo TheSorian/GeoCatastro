@@ -10,6 +10,7 @@ import {
   Image,
   Alert
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import PhotoViewerModal from './PhotoViewerModal';
 
@@ -23,6 +24,7 @@ const SaveFavoriteModal = ({
   const [notes, setNotes] = useState('');
   const [photos, setPhotos] = useState([]);
   const [previewPhotoUri, setPreviewPhotoUri] = useState(null);
+  const [showPickerChoice, setShowPickerChoice] = useState(false);
 
   useEffect(() => {
     if (visible && parcel) {
@@ -32,7 +34,7 @@ const SaveFavoriteModal = ({
     }
   }, [visible, parcel]);
 
-  const handlePickPhoto = async () => {
+  const handlePickFromDocumentPicker = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['image/jpeg', 'image/png', 'image/webp', 'image/*'],
@@ -52,6 +54,91 @@ const SaveFavoriteModal = ({
     } catch (err) {
       Alert.alert('Error', 'No se pudo seleccionar la imagen.');
     }
+  };
+
+  const handleTakePhoto = async () => {
+    setShowPickerChoice(false);
+    try {
+      const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('Permiso de Cámara', 'Se necesita permiso de cámara para tomar fotos directamente.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.8
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const newPhoto = {
+          uri: asset.uri,
+          name: asset.fileName || 'foto_camara.jpg',
+          size: asset.fileSize,
+          timestamp: Date.now()
+        };
+        setPhotos(prev => [...prev, newPhoto]);
+      }
+    } catch (e) {
+      // Fallback a DocumentPicker si ImagePicker falla en entorno no soportado
+      handlePickFromDocumentPicker();
+    }
+  };
+
+  const handlePickFromGallery = async () => {
+    setShowPickerChoice(false);
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        return handlePickFromDocumentPicker();
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.8,
+        allowsMultipleSelection: true
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const newItems = result.assets.map(asset => ({
+          uri: asset.uri,
+          name: asset.fileName || 'foto.jpg',
+          size: asset.fileSize,
+          timestamp: Date.now()
+        }));
+        setPhotos(prev => [...prev, ...newItems]);
+      }
+    } catch (e) {
+      handlePickFromDocumentPicker();
+    }
+  };
+
+  const handleOpenPhotoOptions = () => {
+    Alert.alert(
+      '📸 Añadir Foto a la Finca',
+      'Elige el origen de la fotografía:',
+      [
+        {
+          text: '📷 Tomar Foto con Cámara',
+          onPress: handleTakePhoto
+        },
+        {
+          text: '🖼️ Elegir de la Galería',
+          onPress: handlePickFromGallery
+        },
+        {
+          text: '📂 Explorador de Archivos',
+          onPress: handlePickFromDocumentPicker
+        },
+        {
+          text: 'Cancelar',
+          style: 'cancel'
+        }
+      ]
+    );
   };
 
   const handleRemovePhoto = (indexToRemove) => {
@@ -113,7 +200,7 @@ const SaveFavoriteModal = ({
               {/* Sección de Fotos Adjuntas */}
               <View style={styles.photosHeaderRow}>
                 <Text style={styles.fieldLabel}>📸 Fotos de la Finca ({photos.length})</Text>
-                <TouchableOpacity style={styles.btnAddPhoto} onPress={handlePickPhoto}>
+                <TouchableOpacity style={styles.btnAddPhoto} onPress={handleOpenPhotoOptions}>
                   <Text style={styles.btnAddPhotoText}>➕ Añadir Foto</Text>
                 </TouchableOpacity>
               </View>
