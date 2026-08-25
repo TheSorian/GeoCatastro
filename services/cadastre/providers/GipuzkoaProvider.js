@@ -203,40 +203,83 @@ export class GipuzkoaProvider {
       let subparcels = [];
       let mainAddress = parCode ? `Parcela ${parCode} (${cleanRef})` : `Referencia ${cleanRef} (Gipuzkoa)`;
 
-      // Consulta y desglose de inmuebles / portales mediante el servicio oficial de Gipuzkoa
+      // Consulta y desglose de fincas / inmuebles mediante el servicio oficial de Gipuzkoa
       try {
         const tooltipUrl = `https://ssl6.gipuzkoa.eus/Catastro/tooltip/urbana.aspx?id=${encodeURIComponent(cleanRef)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`;
         const res = await fetch(tooltipUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        let sCode = '0001';
+        let portalNum = '001';
+        let streetName = '';
+
         if (res.ok) {
           const html = await res.text();
-          const rows = [...html.matchAll(/<tr[^>]*class="textGrid"[^>]*>([\s\S]*?)<\/tr>/gi)].map(m => m[1]);
-          if (rows.length > 0) {
-            subparcels = rows.map((r, idx) => {
-              const cols = [...r.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
-              const street = cols[0] || '';
-              const num = cols[1] ? cols[1].replace(/^0+/, '') : '';
-              const zona = cols[2] || '';
-              const sub = cols[3] || '';
-              const dp = cols[4] || '';
-              const addr = `${street} ${num}`.trim();
-              if (idx === 0 && addr) {
-                mainAddress = addr;
+          const linkMatch = html.match(/href=['"][^'"]*refMapa\.asp\?([^'"]+)['"]/i);
+          if (linkMatch) {
+            const rawParams = linkMatch[1].replace(/&amp;/g, '&');
+            const qMatchCalle = rawParams.match(/Calle=([^&]+)/i);
+            const qMatchPortal = rawParams.match(/Portal=([^&]+)/i);
+            if (qMatchCalle) sCode = qMatchCalle[1];
+            if (qMatchPortal) portalNum = qMatchPortal[1];
+          }
+          const rowMatch = html.match(/<tr[^>]*class="textGrid"[^>]*>([\s\S]*?)<\/tr>/i);
+          if (rowMatch) {
+            const cols = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
+            if (cols[0]) streetName = cols[0];
+          }
+
+          // Consultar el listado completo de fincas en refMapa.asp
+          const refMapaUrl = `https://ssl7.gipuzkoa.net/OgasunaNet/Catastro/refMapa.asp?Municipio=${encodeURIComponent(munCode)}&RefCatastral=${encodeURIComponent(cleanRef)}&Calle=${encodeURIComponent(sCode)}&Portal=${encodeURIComponent(portalNum)}&Idioma=Cas`;
+          const resM = await fetch(refMapaUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0',
+              'Referer': 'https://ssl6.gipuzkoa.eus/'
+            }
+          });
+
+          if (resM.ok) {
+            const htmlM = await resM.text();
+            const fincasMatches = [...htmlM.matchAll(/<tr[^>]*bgcolor="#FFFFFF"[^>]*>([\s\S]*?)<\/tr>/gi)].map(m => m[1]);
+            if (fincasMatches.length > 0) {
+              const cleanPortal = portalNum.replace(/^0+/, '');
+              if (streetName) {
+                mainAddress = `C/ ${streetName} ${cleanPortal}`.trim();
               }
-              return {
-                id: `${cleanRef}-${idx + 1}`,
-                ref20: cleanRef,
-                cargo: String(idx + 1).padStart(3, '0'),
-                address: addr ? `C/ ${addr}` : mainAddress,
-                interior: `Inmueble ${idx + 1}${zona ? ` (Zona ${zona})` : ''}${sub ? ` Sub. ${sub}` : ''}`,
-                muni: munCode,
-                prov: 'Gipuzkoa',
-                del: '20',
-                mun: munCode,
-                parCode: parCode,
-                polCode: '',
-                subareaCode: String(idx + 1)
-              };
-            });
+
+              subparcels = fincasMatches.map((rowHtml, idx) => {
+                const fnMatch = rowHtml.match(/EnviarDatosFinca\('([^']+)',\s*'([^']+)'\)/i);
+                const cols = [...rowHtml.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => m[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim());
+                const fincaId = fnMatch ? fnMatch[1] : (cols[0] ? cols[0].split(' ')[0] : `${cleanRef}-${idx + 1}`);
+                const digito = fnMatch ? fnMatch[2] : (cols[0] && cols[0].split(' ')[1] ? cols[0].split(' ')[1] : '');
+                const esc = cols[1] && cols[1] !== '-' ? `Esc. ${cols[1]}` : '';
+                const planta = cols[2] && cols[2] !== '-' ? `Planta ${cols[2]}` : '';
+                const mano = cols[3] && cols[3] !== '-' ? `Mano ${cols[3]}` : '';
+                const destino = cols[4] || 'INMUEBLE';
+                const sup = cols[5] ? `${cols[5]} m²` : '';
+
+                const doorParts = [planta, mano, esc].filter(Boolean).join(' - ');
+                const interior = doorParts ? `${doorParts} (${sup} · ${destino})` : `Finca ${fincaId} ${digito} (${sup} · ${destino})`;
+                const addr = streetName ? `C/ ${streetName} ${cleanPortal}` : `Parcela ${cleanRef}`;
+
+                return {
+                  id: `${fincaId}${digito ? `-${digito}` : ''}`,
+                  ref20: `${fincaId}${digito ? ` ${digito}` : ''}`,
+                  fincaId,
+                  codDigito: digito,
+                  cargo: String(idx + 1).padStart(3, '0'),
+                  address: addr,
+                  interior,
+                  superficie: sup,
+                  uso: destino,
+                  muni: munCode,
+                  prov: 'Gipuzkoa',
+                  del: '20',
+                  mun: munCode,
+                  parCode: cleanRef,
+                  polCode: '',
+                  subareaCode: String(idx + 1)
+                };
+              });
+            }
           }
         }
       } catch (errScrap) {

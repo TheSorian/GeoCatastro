@@ -856,6 +856,47 @@ export default function App() {
     </html>
   `;
 
+  // Generador de script para el Visor In-App de Gipuzkoa (con zoom y autofoco de finca)
+  const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
+    (function() {
+      // 1. Inyectar meta viewport y estilo zoom responsive
+      try {
+        var meta = document.createElement('meta');
+        meta.name = 'viewport';
+        meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes';
+        document.getElementsByTagName('head')[0].appendChild(meta);
+
+        var style = document.createElement('style');
+        style.innerHTML = 'body { font-size: 15px !important; margin: 8px !important; } table { width: 100% !important; max-width: 100% !important; } td, th, a, span, b, p { font-size: 14px !important; } .header { font-size: 16px !important; font-weight: bold !important; } .downGroup { min-height: 55px !important; }';
+        document.getElementsByTagName('head')[0].appendChild(style);
+      } catch (e) {}
+
+      // 2. Si estamos en tooltip/urbana.aspx y se pide una finca específica o ver inmuebles, hacer clic en "Ver"
+      var targetFinca = ${JSON.stringify(targetFinca)};
+      var targetDigito = ${JSON.stringify(targetDigito)};
+
+      var currentUrl = window.location.href;
+      if (currentUrl.indexOf('urbana.aspx') !== -1 && targetFinca) {
+        var verLink = document.querySelector('table#tblParcelas a[href*="refMapa.asp"]');
+        if (verLink) {
+          setTimeout(function() {
+            window.location.href = verLink.href;
+          }, 300);
+        }
+      }
+
+      // 3. Si estamos en refCatastral.asp y hay una finca objetivo, ejecutar EnviarDatosFinca
+      if (currentUrl.indexOf('refCatastral.asp') !== -1 && targetFinca) {
+        if (typeof EnviarDatosFinca === 'function') {
+          setTimeout(function() {
+            EnviarDatosFinca(targetFinca, targetDigito);
+          }, 300);
+        }
+      }
+    })();
+    true;
+  `;
+
   // Generador de script de autorrellenado automático para Bizkaia
   const getBizkaiaInjectedJs = (dni, parcelRef, isBI = false, targetNumFijo = '', targetDoor = '', targetCargo = '') => `
     (function() {
@@ -1256,7 +1297,21 @@ export default function App() {
       return;
     }
     
-    if (item.subareaCode && item.ref20 && (selectedRegion === 'VI' || selectedRegion === 'SS')) {
+    if (selectedRegion === 'SS') {
+      const clean = String(ref || '').replace(/\s+/g, '');
+      const munCode = item.mun || '69';
+      const fincaId = item.fincaId || (clean.length < 10 ? clean : '');
+      const codDigito = item.codDigito || '';
+      const title = item.interior ? `Finca · ${item.interior.split('(')[0].trim()}` : (item.address || 'Ficha Catastral · Gipuzkoa');
+
+      setFichaTitle(title);
+      setFichaInjectedJs(getGipuzkoaInjectedJs(fincaId, codDigito));
+      setFichaWebViewUrl(`https://ssl6.gipuzkoa.eus/Catastro/tooltip/urbana.aspx?id=${encodeURIComponent(item.parCode || clean)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`);
+      setFichaWebViewVisible(true);
+      return;
+    }
+
+    if (item.subareaCode && item.ref20 && selectedRegion === 'VI') {
       try {
         Clipboard.setString(item.ref20);
         Alert.alert('Copiado', `Referencia copiada al portapapeles:\n${item.ref20}\n\nPuedes usar "Buscar" en la web para localizarla.`);
