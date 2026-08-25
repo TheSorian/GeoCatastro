@@ -128,47 +128,66 @@ export const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
       var submitted = false;
       var fincaCheck = setInterval(function() {
         if (submitted) return;
-        var cleanFinca = String(targetFinca).trim();
-        var cleanDig = String(targetDigito).trim();
-
-        // 1. Si estamos en tooltip, click en Ver
-        var verLink = document.querySelector('table#tblParcelas a[href*="refMapa.asp"]');
-        if (verLink) {
-          window.location.href = verLink.href;
-          return;
-        }
-
-        // 2. Si estamos en refCatastral, click directo al enlace de la finca
-        var link = document.querySelector('a[onclick*="' + cleanFinca + '"]');
-        if (link) {
+        var currentUrl = window.location.href || '';
+        if (currentUrl.indexOf('finca.asp') !== -1) {
           submitted = true;
           clearInterval(fincaCheck);
-          link.click();
           return;
         }
 
-        // 3. Ejecutar EnviarDatosFinca
-        if (typeof window.EnviarDatosFinca === 'function') {
-          submitted = true;
-          clearInterval(fincaCheck);
-          window.EnviarDatosFinca(cleanFinca, cleanDig);
-          return;
-        }
+        try {
+          var cleanFinca = String(targetFinca).trim();
+          var cleanDig = String(targetDigito).trim();
 
-        // 4. Enviar formulario fincas
-        var f = document.forms['fincas'] || document.querySelector('form[name="fincas"]');
-        if (f && f.idFinca) {
-          submitted = true;
-          clearInterval(fincaCheck);
-          f.idFinca.value = cleanFinca;
-          if (f.codDigito) f.codDigito.value = cleanDig;
-          f.action = 'finca.asp';
-          f.submit();
-          return;
-        }
+          // 1. Si estamos en tooltip, click en Ver
+          if (currentUrl.indexOf('urbana.aspx') !== -1 || currentUrl.indexOf('rustica.aspx') !== -1) {
+            var verLink = document.querySelector('table#tblParcelas a[href*="refMapa.asp"]');
+            if (verLink) {
+              window.location.href = verLink.href;
+              return;
+            }
+          }
+
+          // 2. Si estamos en refCatastral o parcela:
+          // A. Click en el enlace directo de la tabla
+          var links = document.querySelectorAll('a[onclick*="EnviarDatosFinca"]');
+          for (var i = 0; i < links.length; i++) {
+            var oc = links[i].getAttribute('onclick') || '';
+            if (oc.indexOf(cleanFinca) !== -1) {
+              submitted = true;
+              clearInterval(fincaCheck);
+              links[i].click();
+              return;
+            }
+          }
+
+          // B. Llamar a EnviarDatosFinca
+          if (typeof window.EnviarDatosFinca === 'function' && (document.forms['fincas'] || document.querySelector('form[name="fincas"]'))) {
+            submitted = true;
+            clearInterval(fincaCheck);
+            window.EnviarDatosFinca(cleanFinca, cleanDig);
+            return;
+          }
+
+          // C. Enviar formulario fincas directamente
+          var f = document.forms['fincas'] || document.querySelector('form[name="fincas"]');
+          if (f && f.idFinca) {
+            submitted = true;
+            clearInterval(fincaCheck);
+            f.idFinca.value = cleanFinca;
+            if (f.codDigito) f.codDigito.value = cleanDig;
+            f.action = 'finca.asp';
+            if (typeof f.submit === 'function') {
+              f.submit();
+            } else {
+              HTMLFormElement.prototype.submit.call(f);
+            }
+            return;
+          }
+        } catch (e) {}
       }, 100);
 
-      setTimeout(function() { clearInterval(fincaCheck); }, 8000);
+      setTimeout(function() { clearInterval(fincaCheck); }, 10000);
     }
   })();
   true;

@@ -113,13 +113,6 @@ const ParcelDetailsSheet = ({
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.btnNavigate}
-              onPress={() => openGpsNavigation(parcelDetails.lat, parcelDetails.lon, parcelDetails.address || 'Parcela')}
-            >
-              <Text style={styles.btnNavigateText}>🚗 Cómo llegar</Text>
-            </TouchableOpacity>
-
             {subparcels.length > 1 && (
               <TouchableOpacity
                 style={styles.btnSecondary}
@@ -135,6 +128,13 @@ const ParcelDetailsSheet = ({
                 </Text>
               </TouchableOpacity>
             )}
+
+            <TouchableOpacity
+              style={styles.btnNavigate}
+              onPress={() => openGpsNavigation(parcelDetails.lat, parcelDetails.lon, parcelDetails.address || 'Parcela')}
+            >
+              <Text style={styles.btnNavigateText}>📍</Text>
+            </TouchableOpacity>
           </View>
 
           {/* Lista Desplegable de Subparcelas / Pisos de 20 dígitos */}
@@ -376,18 +376,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   btnNavigate: {
-    flex: 1.5,
-    backgroundColor: '#e8f5e9',
+    paddingHorizontal: 12,
     paddingVertical: 10,
+    backgroundColor: '#e8f5e9',
     borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#a5d6a7',
   },
   btnNavigateText: {
-    color: '#2e7d32',
-    fontWeight: 'bold',
-    fontSize: 12,
+    fontSize: 16,
   },
   subparcelsContainer: {
     marginTop: 10,
