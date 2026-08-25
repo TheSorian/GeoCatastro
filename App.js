@@ -856,10 +856,10 @@ export default function App() {
     </html>
   `;
 
-  // Generador de script para el Visor In-App de Gipuzkoa (con zoom y autofoco de finca)
+  // Generador de script para el Visor In-App de Gipuzkoa (con zoom, formateo y autofoco de finca)
   const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
     (function() {
-      // 1. Inyectar meta viewport y estilo zoom responsive
+      // 1. Inyectar meta viewport y estilo CSS optimizado para móvil (evita cortes de texto)
       try {
         var meta = document.createElement('meta');
         meta.name = 'viewport';
@@ -867,7 +867,48 @@ export default function App() {
         document.getElementsByTagName('head')[0].appendChild(meta);
 
         var style = document.createElement('style');
-        style.innerHTML = 'body { font-size: 15px !important; margin: 8px !important; } table { width: 100% !important; max-width: 100% !important; } td, th, a, span, b, p { font-size: 14px !important; } .header { font-size: 16px !important; font-weight: bold !important; } .downGroup { min-height: 55px !important; }';
+        style.innerHTML = \`
+          html, body {
+            overflow-x: auto !important;
+            overflow-y: auto !important;
+            min-width: 100% !important;
+            margin: 0 !important;
+            padding: 8px !important;
+            box-sizing: border-box !important;
+            -webkit-text-size-adjust: 100% !important;
+          }
+          * {
+            box-sizing: border-box !important;
+          }
+          table {
+            width: 100% !important;
+            max-width: 100% !important;
+            border-collapse: collapse !important;
+            table-layout: auto !important;
+          }
+          td, th {
+            font-size: 13px !important;
+            line-height: 1.35 !important;
+            padding: 6px 4px !important;
+            white-space: normal !important;
+            word-break: break-word !important;
+          }
+          a, span, b, p {
+            font-size: 13px !important;
+          }
+          .header {
+            font-size: 15px !important;
+            font-weight: bold !important;
+            padding: 6px 0 !important;
+          }
+          .downGroup {
+            min-height: 55px !important;
+            padding: 4px !important;
+          }
+          .selector1, .selector2, img[src*="flecha"], img[src*="contaritos"] {
+            display: none !important;
+          }
+        \`;
         document.getElementsByTagName('head')[0].appendChild(style);
       } catch (e) {}
 
