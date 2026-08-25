@@ -12,7 +12,7 @@
 
 * 🗺️ **Visor de Mapas y Catastro:**
   - Mapas base: Satélite (IGN PNOA, Esri), Topográfico y Callejero.
-  - Capa catastral interactiva (Sede Electrónica, Navarra, Bizkaia, Álava y Gipuzkoa).
+  - Capa catastral interactiva (Estatal, Navarra, Bizkaia, Álava y Gipuzkoa).
   - Zoom ultra-detallado sin cortes.
 * 📏 **Herramientas de Medición:**
   - Cálculo en tiempo real de distancias, áreas y perímetros.
