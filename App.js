@@ -25,7 +25,7 @@ import {
 import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
 import * as Location from 'expo-location';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { cadastreService } from './services/cadastre/CadastreService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -857,13 +857,15 @@ export default function App() {
   `;
 
   // Generador de script de autorrellenado automático para Bizkaia
-  const getBizkaiaInjectedJs = (dni, parcelRef, targetNumFijo = '', targetDoor = '', targetCargo = '') => `
+  const getBizkaiaInjectedJs = (dni, parcelRef, isBI = false, targetNumFijo = '', targetDoor = '', targetCargo = '') => `
     (function() {
       var dni = ${JSON.stringify(dni)};
       var ref = ${JSON.stringify(parcelRef)};
+      var isBI = ${isBI};
       var targetNumFijo = ${JSON.stringify(targetNumFijo)};
       var targetDoor = ${JSON.stringify(targetDoor)};
       var targetCargo = ${JSON.stringify(targetCargo)};
+
       
       window.latestPdfUrl = '';
       window.latestPdfBase64 = '';
@@ -1048,9 +1050,12 @@ export default function App() {
           }
 
           setTimeout(function() {
-            var parRadio = document.getElementById('form1:consolePublico:3');
-            if (parRadio) {
-              parRadio.checked = true;
+            var radioId = isBI ? 'form1:consolePublico:1' : 'form1:consolePublico:3';
+            var inputId = isBI ? 'form1:textBI' : 'form1:textParcela';
+
+            var radioOpt = document.getElementById(radioId);
+            if (radioOpt) {
+              radioOpt.checked = true;
               if (typeof PrimeFaces !== 'undefined' && PrimeFaces.ab) {
                 PrimeFaces.ab({
                   s: "form1:consolePublico",
@@ -1058,19 +1063,19 @@ export default function App() {
                   p: "form1:consolePublico",
                   u: "form1:panelSeleccionFichaCatastral form1:panelBotoneraBuscar"
                 });
-              } else if (parRadio.onchange) {
-                parRadio.onchange();
+              } else if (radioOpt.onchange) {
+                radioOpt.onchange();
               }
             }
 
             var attempts = 0;
             var interval = setInterval(function() {
               attempts++;
-              var textPar = document.getElementById('form1:textParcela');
+              var textInput = document.getElementById(inputId);
               var btnBuscar = document.getElementById('form1:cmdButtonBuscar');
-              if (textPar && btnBuscar) {
+              if (textInput && btnBuscar) {
                 clearInterval(interval);
-                fillField('form1:textParcela', ref);
+                fillField(inputId, ref);
                 setTimeout(function() {
                   btnBuscar.click();
                   waitForResultsAndHighlight();
@@ -1144,7 +1149,7 @@ export default function App() {
         // Extraer la parte base64 pura del data URL (quitar "data:application/pdf;base64,")
         const base64Data = fichaPdfDataUrl.split(',')[1] || fichaPdfDataUrl;
         const fileName = 'Ficha_Catastral_' + (fichaTitle || 'Bizkaia').replace(/[^a-zA-Z0-9]/g, '_') + '.pdf';
-        const fileUri = FileSystem.cacheDirectory + fileName;
+        const fileUri = FileSystem.documentDirectory + fileName;
 
         // Escribir el PDF al sistema de archivos temporal
         await FileSystem.writeAsStringAsync(fileUri, base64Data, {
@@ -1155,8 +1160,7 @@ export default function App() {
         if (await Sharing.isAvailableAsync()) {
           await Sharing.shareAsync(fileUri, {
             mimeType: 'application/pdf',
-            dialogTitle: 'Guardar o Compartir Ficha Catastral',
-            UTI: 'com.adobe.pdf',
+            dialogTitle: 'Guardar o Compartir Ficha Catastral'
           });
         } else {
           Alert.alert('Error', 'La función de compartir no está disponible en este dispositivo.');
@@ -1171,7 +1175,7 @@ export default function App() {
       }
     } catch (error) {
       console.error('Error compartiendo PDF:', error);
-      Alert.alert('Error', 'No se ha podido compartir el archivo. Inténtalo de nuevo.');
+      Alert.alert('Detalles del Error', error.message || error.toString());
     }
   };
 
@@ -1224,9 +1228,11 @@ export default function App() {
     const ref = item.ref20 || item.refCat;
     if (selectedRegion === 'BI') {
       const clean = String(ref || '').replace(/\s+/g, '');
-      let formattedPar = clean;
-      if (clean.length >= 12) {
-        formattedPar = `${clean.substring(0, 3)} ${clean.substring(3, 7)} ${clean.substring(7, 12)}`;
+      const isBienInmueble = clean.length === 20;
+      let finalRef = clean;
+      
+      if (!isBienInmueble && clean.length >= 12) {
+        finalRef = `${clean.substring(0, 3)} ${clean.substring(3, 7)} ${clean.substring(7, 12)}`;
       }
 
       let numFijo = '';
@@ -1244,7 +1250,7 @@ export default function App() {
       const title = door ? `Ficha · ${door}` : (item.address || 'Ficha Catastral · Bizkaia');
 
       setFichaTitle(title);
-      setFichaInjectedJs(getBizkaiaInjectedJs(dni || '12345678Z', formattedPar, numFijo, door, cargo));
+      setFichaInjectedJs(getBizkaiaInjectedJs(dni || '12345678Z', finalRef, isBienInmueble, numFijo, door, cargo));
       setFichaWebViewUrl('https://appsec.ebizkaia.eus/O4GC000C/vistas/fichaCatastral.xhtml?language=es');
       setFichaWebViewVisible(true);
       return;
