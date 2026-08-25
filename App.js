@@ -613,9 +613,9 @@ export default function App() {
     if (selectedRegion === 'SS') {
       const clean = String(ref || '').replace(/\s+/g, '');
       const munCode = item.mun || '69';
-      const fincaId = item.fincaId || '';
-      const codDigito = item.codDigito || '';
-      let targetRef = item.parCode || item.refCat || parcelDetails?.refCat || selectedParcel?.ref || clean;
+      const fincaId = item.fincaId ? String(item.fincaId).trim() : '';
+      const codDigito = item.codDigito ? String(item.codDigito).trim() : '';
+      let targetRef = item.refCat || parcelDetails?.refCat || selectedParcel?.ref || clean;
 
       const isRustic = targetRef.includes('-');
       if (isRustic) {
