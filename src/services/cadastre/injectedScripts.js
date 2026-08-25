@@ -3,92 +3,123 @@
  */
 export const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
   (function() {
-    try {
-      var meta = document.createElement('meta');
-      meta.name = 'viewport';
-      meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes';
-      document.getElementsByTagName('head')[0].appendChild(meta);
+    function applyMobileStyles() {
+      try {
+        if (!document.querySelector('meta[name="viewport"]')) {
+          var meta = document.createElement('meta');
+          meta.name = 'viewport';
+          meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes';
+          (document.head || document.documentElement).appendChild(meta);
+        }
 
-      var style = document.createElement('style');
-      style.innerHTML = \`
-        html, body {
-          overflow-x: auto !important;
-          overflow-y: auto !important;
-          min-width: 100% !important;
-          margin: 0 !important;
-          padding: 8px !important;
-          background-color: #ffffff !important;
-          box-sizing: border-box !important;
-          -webkit-text-size-adjust: 100% !important;
+        var styleId = 'catastro-gipuzkoa-responsive-style';
+        if (!document.getElementById(styleId)) {
+          var style = document.createElement('style');
+          style.id = styleId;
+          style.innerHTML = \`
+            html, body {
+              margin: 0 !important;
+              padding: 6px !important;
+              width: 100% !important;
+              min-width: 100% !important;
+              max-width: 100% !important;
+              overflow-x: auto !important;
+              overflow-y: auto !important;
+              background-color: #ffffff !important;
+              -webkit-text-size-adjust: 100% !important;
+              box-sizing: border-box !important;
+            }
+            * {
+              box-sizing: border-box !important;
+            }
+
+            /* Ocultar la columna lateral vacia de 182px de ASP antiguo que comprime todo a la derecha */
+            body > table > tbody > tr > td:first-child,
+            body > table > tr > td:first-child {
+              display: none !important;
+              width: 0 !important;
+              height: 0 !important;
+            }
+
+            /* Ocultar elementos de cabecera fija de escritorio que fuerzan texto vertical */
+            .selector1, .selector2, .datosIdentificado,
+            img[src*="escudo"], img[src*="flecha"], img[src*="contaritos"], img[src*="punto"],
+            table[width="85%"] td[style*="min-width: 260px"],
+            table[width="75%"] td[style*="min-width: 260px"],
+            td[style*="min-width: 260px"] {
+              display: none !important;
+            }
+
+            /* Todas las tablas de datos a 100% de ancho real de pantalla */
+            table {
+              width: 100% !important;
+              min-width: 100% !important;
+              max-width: 100% !important;
+              border-collapse: collapse !important;
+              table-layout: auto !important;
+              margin: 0 0 8px 0 !important;
+            }
+            #bodyTable, #tblParcelas {
+              width: 100% !important;
+              display: table !important;
+            }
+            tr {
+              display: table-row !important;
+              visibility: visible !important;
+            }
+            td, th {
+              font-size: 13px !important;
+              line-height: 1.4 !important;
+              padding: 6px 4px !important;
+              white-space: normal !important;
+              word-break: break-word !important;
+              display: table-cell !important;
+              visibility: visible !important;
+            }
+            .textSec td, tr.textSec td, td[bgcolor="#CCCCCC"], td[bgcolor="#cc9900"] {
+              background-color: #666666 !important;
+              color: #ffffff !important;
+              font-weight: bold !important;
+              font-size: 12px !important;
+            }
+            .textGrid td, tr.textGrid td {
+              background-color: #f9f9f9 !important;
+              color: #000000 !important;
+              font-size: 13px !important;
+            }
+            a {
+              color: #0055a5 !important;
+              text-decoration: underline !important;
+              font-weight: bold !important;
+              font-size: 13px !important;
+            }
+            .header {
+              font-size: 15px !important;
+              font-weight: bold !important;
+              padding: 8px !important;
+              background-color: #0055a5 !important;
+              color: #ffffff !important;
+            }
+            .downGroup {
+              min-height: 60px !important;
+              padding: 6px !important;
+              border: 1px solid #ccc !important;
+              border-radius: 6px !important;
+              background-color: #f5f5f5 !important;
+            }
+            form {
+              float: none !important;
+              width: 100% !important;
+              display: block !important;
+            }
+          \`;
+          (document.head || document.documentElement).appendChild(style);
         }
-        * {
-          box-sizing: border-box !important;
-        }
-        form {
-          float: none !important;
-          width: 100% !important;
-          display: block !important;
-        }
-        table {
-          width: 100% !important;
-          max-width: 100% !important;
-          border-collapse: collapse !important;
-          table-layout: auto !important;
-        }
-        #bodyTable, #tblParcelas {
-          width: 100% !important;
-          display: table !important;
-        }
-        tr {
-          display: table-row !important;
-          visibility: visible !important;
-        }
-        td, th {
-          font-size: 13px !important;
-          line-height: 1.4 !important;
-          padding: 6px 4px !important;
-          white-space: normal !important;
-          word-break: break-word !important;
-          display: table-cell !important;
-          visibility: visible !important;
-        }
-        .textSec td, tr.textSec td {
-          background-color: #666666 !important;
-          color: #ffffff !important;
-          font-weight: bold !important;
-          font-size: 12px !important;
-        }
-        .textGrid td, tr.textGrid td {
-          background-color: #f9f9f9 !important;
-          color: #000000 !important;
-          font-size: 13px !important;
-        }
-        a {
-          color: #0055a5 !important;
-          text-decoration: underline !important;
-          font-weight: bold !important;
-          font-size: 13px !important;
-        }
-        .header {
-          font-size: 15px !important;
-          font-weight: bold !important;
-          padding: 8px !important;
-          background-color: #0055a5 !important;
-          color: #ffffff !important;
-        }
-        .downGroup {
-          min-height: 60px !important;
-          padding: 6px !important;
-          border: 1px solid #ccc !important;
-          border-radius: 6px !important;
-          background-color: #f5f5f5 !important;
-        }
-        .selector1, .selector2, img[src*="flecha"], img[src*="contaritos"] {
-          display: none !important;
-        }
-      \`;
-      document.getElementsByTagName('head')[0].appendChild(style);
-    } catch (e) {}
+      } catch (e) {}
+    }
+
+    applyMobileStyles();
+    setInterval(applyMobileStyles, 300);
 
     var targetFinca = ${JSON.stringify(targetFinca)};
     var targetDigito = ${JSON.stringify(targetDigito)};
@@ -103,7 +134,7 @@ export const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
       }
     }
 
-    if (currentUrl.indexOf('refCatastral.asp') !== -1 && targetFinca) {
+    if ((currentUrl.indexOf('refCatastral.asp') !== -1 || currentUrl.indexOf('parcela.asp') !== -1) && targetFinca) {
       if (typeof EnviarDatosFinca === 'function') {
         setTimeout(function() {
           EnviarDatosFinca(targetFinca, targetDigito);
