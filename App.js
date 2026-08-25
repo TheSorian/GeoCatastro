@@ -2,47 +2,64 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet,
   View,
-  TextInput,
-  Text,
+  SafeAreaView,
   Alert,
   Keyboard,
-  FlatList,
-  TouchableOpacity,
-  SafeAreaView,
-  ActivityIndicator,
-  ScrollView,
   Clipboard,
   Dimensions,
   Animated,
   PanResponder,
-  Modal,
-  Switch,
-  Linking,
-  StatusBar,
-  Platform,
+  TouchableOpacity,
+  Text,
   Share
 } from 'react-native';
-import { WebView } from 'react-native-webview';
 import * as WebBrowser from 'expo-web-browser';
 import * as Location from 'expo-location';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { cadastreService } from './services/cadastre/CadastreService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SplashScreen from 'expo-splash-screen';
+
 import appConfig from './app.json';
+import { cadastreService } from './services/cadastre/CadastreService';
+import { getGipuzkoaInjectedJs, getBizkaiaInjectedJs } from './src/services/cadastre/injectedScripts';
+import { saveFavorite } from './src/services/storage/favoritesStorage';
+import { saveMeasurement } from './src/services/storage/measurementsStorage';
+import { exportMeasurementToKml } from './src/services/export/kmlExporter';
+import { importKmlFile } from './src/services/export/kmlImporter';
+import { headingTracker } from './src/services/location/headingTracker';
+import { checkAppUpdate } from './src/utils/versionChecker';
+
+// Componentes modulares
+import MapViewer from './src/components/Map/MapViewer';
+import SearchBar from './src/components/Search/SearchBar';
+import MeasurePanel from './src/components/Measure/MeasurePanel';
+import ParcelDetailsSheet from './src/components/Cards/ParcelDetailsSheet';
+
+// Modales
+import LayersModal from './src/components/Modals/LayersModal';
+import RusticSearchModal from './src/components/Modals/RusticSearchModal';
+import FavoritesModal from './src/components/Modals/FavoritesModal';
+import SaveFavoriteModal from './src/components/Modals/SaveFavoriteModal';
+import SaveMeasurementModal from './src/components/Modals/SaveMeasurementModal';
+import SavedMeasurementsModal from './src/components/Modals/SavedMeasurementsModal';
+import DniModal from './src/components/Modals/DniModal';
+import FichaWebViewModal from './src/components/Modals/FichaWebViewModal';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const STORAGE_KEY = '@catastro_recent_searches_v1';
+const RECENT_SEARCHES_STORAGE_KEY = '@catastro_recent_searches_v1';
 
 export default function App() {
+  // --- Estados de Búsqueda ---
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [recentSearches, setRecentSearches] = useState([]);
   const [showRecent, setShowRecent] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // --- Estados de Parcela e Inmuebles ---
   const [selectedParcel, setSelectedParcel] = useState(null);
   const [parcelDetails, setParcelDetails] = useState(null);
   const [subparcels, setSubparcels] = useState([]);
@@ -51,14 +68,14 @@ export default function App() {
   const [selectedRegion, setSelectedRegion] = useState('ES');
   const [subparcelFilter, setSubparcelFilter] = useState('');
 
-  // Estados del Gestor de Capas
+  // --- Estados de Capas ---
   const [showLayersModal, setShowLayersModal] = useState(false);
-  const [activeBaseLayer, setActiveBaseLayer] = useState('osm'); // 'osm' | 'ign_base' | 'ign_pnoa' | 'esri_sat'
+  const [activeBaseLayer, setActiveBaseLayer] = useState('osm');
   const [catastroVisible, setCatastroVisible] = useState(true);
   const [catastroOpacity, setCatastroOpacity] = useState(0.85);
   const [ignLabelsVisible, setIgnLabelsVisible] = useState(false);
 
-  // Estados de la Herramienta de Medición
+  // --- Estados de Medición ---
   const [measureMode, setMeasureMode] = useState(null); // null | 'distance' | 'area'
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [measureStats, setMeasureStats] = useState({
@@ -68,27 +85,36 @@ export default function App() {
     pointsCount: 0,
     snapped: false
   });
+  const [currentMeasurePoints, setCurrentMeasurePoints] = useState([]);
 
-  // Estado para NIF/DNI guardado para consultas de Ficha (Bizkaia, etc.)
+  // --- Modales de Mediciones y Favoritos ---
+  const [saveMeasureModalVisible, setSaveMeasureModalVisible] = useState(false);
+  const [savedMeasuresModalVisible, setSavedMeasuresModalVisible] = useState(false);
+  const [saveFavModalVisible, setSaveFavModalVisible] = useState(false);
+  const [favModalVisible, setFavModalVisible] = useState(false);
+  const [favModalParcel, setFavModalParcel] = useState(null);
+  const [rusticModalVisible, setRusticModalVisible] = useState(false);
+
+  // --- Estados de DNI y Visor de Ficha Oficial In-App ---
   const [savedDni, setSavedDni] = useState('');
   const [dniModalVisible, setDniModalVisible] = useState(false);
   const [dniInput, setDniInput] = useState('');
   const [pendingFichaItem, setPendingFichaItem] = useState(null);
 
-  // Estado para Visor de Ficha In-App con Autofill Inteligente
   const [fichaWebViewVisible, setFichaWebViewVisible] = useState(false);
   const [fichaWebViewUrl, setFichaWebViewUrl] = useState('');
   const [fichaInjectedJs, setFichaInjectedJs] = useState('');
   const [fichaTitle, setFichaTitle] = useState('Ficha Catastral');
   const [fichaPdfUrl, setFichaPdfUrl] = useState(null);
   const [fichaPdfDataUrl, setFichaPdfDataUrl] = useState(null);
-  const fichaWebViewRef = useRef(null);
 
-  const webViewRef = useRef(null);
+  // --- Estados de Geolocalización y Brújula en Vivo ---
+  const [isLiveTracking, setIsLiveTracking] = useState(false);
+
+  const mapViewerRef = useRef(null);
   const typingTimer = useRef(null);
 
-  // Animaciones y Gestos del Panel Desplazable (Bottom Sheet)
-  const PANEL_HEIGHT = SCREEN_HEIGHT * 0.75;
+  // --- Animaciones del Bottom Sheet ---
   const COLLAPSED_Y = SCREEN_HEIGHT * 0.45;
   const EXPANDED_Y = 0;
   const DISMISSED_Y = SCREEN_HEIGHT * 0.85;
@@ -141,21 +167,13 @@ export default function App() {
       },
       onPanResponderRelease: (_, gestureState) => {
         if (!isExpandedRef.current) {
-          if (gestureState.dy < -50) {
-            expandCard();
-          } else if (gestureState.dy > 80) {
-            dismissCard();
-          } else {
-            resetCardPosition();
-          }
+          if (gestureState.dy < -50) expandCard();
+          else if (gestureState.dy > 80) dismissCard();
+          else resetCardPosition();
         } else {
-          if (gestureState.dy > 180) {
-            dismissCard();
-          } else if (gestureState.dy > 50) {
-            resetCardPosition();
-          } else {
-            expandCard();
-          }
+          if (gestureState.dy > 180) dismissCard();
+          else if (gestureState.dy > 50) resetCardPosition();
+          else expandCard();
         }
       }
     })
@@ -163,11 +181,11 @@ export default function App() {
 
   const CURRENT_VERSION = appConfig.expo.version;
 
-  // Cargar búsquedas recientes, comprobar actualizaciones y obtener ubicación inicial
+  // --- Inicialización ---
   useEffect(() => {
     loadRecentSearches();
-    checkAppUpdate();
-    getUserLocation(true);
+    checkAppUpdate(CURRENT_VERSION);
+    getUserLocationInitial();
     AsyncStorage.getItem('@catastro_user_dni').then(val => {
       if (val) {
         setSavedDni(val);
@@ -175,116 +193,88 @@ export default function App() {
       }
     }).catch(() => {});
     SplashScreen.hideAsync().catch(() => {});
+
+    return () => {
+      headingTracker.stopTracking();
+    };
   }, []);
 
-  const getUserLocation = async (isInitial = false) => {
+  const getUserLocationInitial = async () => {
     try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        if (!isInitial) {
-          Alert.alert(
-            'Permiso Denegado',
-            'Necesitamos permiso de ubicación para situarte en el mapa y cargar el catastro correspondiente.'
-          );
-        }
-        return;
-      }
-
-      setLoading(true);
-      const loc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced
-      });
-
-      if (loc && loc.coords) {
-        const { latitude: lat, longitude: lon } = loc.coords;
+      const coords = await headingTracker.getCurrentPosition();
+      if (coords) {
+        const { latitude: lat, longitude: lon } = coords;
         const region = cadastreService.detectRegionFromCoords(lat, lon);
 
         if (region !== selectedRegion) {
           setSelectedRegion(region);
-          webViewRef.current?.postMessage(JSON.stringify({
+          mapViewerRef.current?.postMessage({
             type: 'CHANGE_REGION',
             wmsUrl: cadastreService.getWMSUrl(region),
             wmsLayers: cadastreService.getWMSLayers(region),
             layerType: cadastreService.getWMSLayerType(region)
-          }));
+          });
         }
 
-        webViewRef.current?.postMessage(JSON.stringify({
+        mapViewerRef.current?.postMessage({
           type: 'MOVE_TO',
           lat,
           lon
-        }));
+        });
 
         if (!measureMode) {
           await fetchParcelByCoords(lat, lon, region);
         }
       }
-    } catch (e) {
-      if (!isInitial) {
-        Alert.alert('Error de ubicación', 'No se pudo obtener la ubicación actual.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const checkAppUpdate = async () => {
-    try {
-      const response = await fetch('https://api.github.com/repos/TheSorian/GeoCatastro/releases/latest');
-      if (!response.ok) return;
-
-      const data = await response.json();
-      const latestTag = data?.tag_name || '';
-      const cleanLatest = latestTag.replace(/^v/, '').trim();
-
-      if (cleanLatest && isVersionNewer(CURRENT_VERSION, cleanLatest)) {
-        const downloadUrl = data?.assets?.[0]?.browser_download_url || data?.html_url;
-
-        Alert.alert(
-          '🚀 Nueva Actualización Disponible',
-          `Existe una nueva versión de GeoCatastro (${latestTag}). ¿Deseas descargar e instalar la actualización ahora?`,
-          [
-            { text: 'Más tarde', style: 'cancel' },
-            {
-              text: '📲 Actualizar Ahora',
-              onPress: async () => {
-                try {
-                  if (downloadUrl) {
-                    await Linking.openURL(downloadUrl);
-                  } else if (data?.html_url) {
-                    await Linking.openURL(data.html_url);
-                  }
-                } catch (err) {
-                  if (data?.html_url) {
-                    await Linking.openURL(data.html_url);
-                  }
-                }
-              }
-            }
-          ]
-        );
-      }
     } catch (e) {}
   };
 
-  const isVersionNewer = (current, latest) => {
-    const pCurrent = current.split('.').map(Number);
-    const pLatest = latest.split('.').map(Number);
-    for (let i = 0; i < Math.max(pCurrent.length, pLatest.length); i++) {
-      const c = pCurrent[i] || 0;
-      const l = pLatest[i] || 0;
-      if (l > c) return true;
-      if (l < c) return false;
+  // Toggle de seguimiento en vivo con punto azul y brújula
+  const toggleLiveTracking = async () => {
+    if (isLiveTracking) {
+      headingTracker.stopTracking(handleLocationUpdate);
+      setIsLiveTracking(false);
+    } else {
+      try {
+        const hasPermission = await headingTracker.requestPermissions();
+        if (!hasPermission) {
+          Alert.alert('Permiso requerido', 'Se necesita permiso de ubicación para mostrar tu posición y orientación.');
+          return;
+        }
+
+        setIsLiveTracking(true);
+        headingTracker.startTracking(handleLocationUpdate);
+
+        const current = await headingTracker.getCurrentPosition();
+        if (current) {
+          mapViewerRef.current?.postMessage({
+            type: 'MOVE_TO',
+            lat: current.latitude,
+            lon: current.longitude
+          });
+        }
+      } catch (e) {
+        Alert.alert('Error', 'No se pudo iniciar el seguimiento de ubicación.');
+        setIsLiveTracking(false);
+      }
     }
-    return false;
   };
 
+  const handleLocationUpdate = ({ lat, lon, heading }) => {
+    mapViewerRef.current?.postMessage({
+      type: 'UPDATE_USER_LOCATION',
+      lat,
+      lon,
+      heading,
+      follow: false
+    });
+  };
+
+  // --- Manejo de Búsquedas Recientes ---
   const loadRecentSearches = async () => {
     try {
-      const data = await AsyncStorage.getItem(STORAGE_KEY);
-      if (data) {
-        setRecentSearches(JSON.parse(data));
-      }
+      const data = await AsyncStorage.getItem(RECENT_SEARCHES_STORAGE_KEY);
+      if (data) setRecentSearches(JSON.parse(data));
     } catch (e) {}
   };
 
@@ -297,7 +287,7 @@ export default function App() {
       current.unshift(clean);
       if (current.length > 8) current = current.slice(0, 8);
       setRecentSearches(current);
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+      await AsyncStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(current));
     } catch (e) {}
   };
 
@@ -305,1017 +295,198 @@ export default function App() {
     try {
       const current = recentSearches.filter(item => item !== textToRemove);
       setRecentSearches(current);
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+      await AsyncStorage.setItem(RECENT_SEARCHES_STORAGE_KEY, JSON.stringify(current));
     } catch (e) {}
   };
 
   const clearAllRecent = async () => {
     try {
       setRecentSearches([]);
-      await AsyncStorage.removeItem(STORAGE_KEY);
+      await AsyncStorage.removeItem(RECENT_SEARCHES_STORAGE_KEY);
     } catch (e) {}
   };
 
-  // --- Funciones de Gestión de Capas ---
+  // --- Control de Capas ---
   const handleSelectBaseLayer = (layerKey) => {
     setActiveBaseLayer(layerKey);
-    webViewRef.current?.postMessage(JSON.stringify({
-      type: 'SET_BASE_LAYER',
-      layer: layerKey
-    }));
+    mapViewerRef.current?.postMessage({ type: 'SET_BASE_LAYER', layer: layerKey });
   };
 
   const handleToggleCatastro = (value) => {
     setCatastroVisible(value);
-    webViewRef.current?.postMessage(JSON.stringify({
-      type: 'SET_CATASTRO_VISIBILITY',
-      visible: value
-    }));
+    mapViewerRef.current?.postMessage({ type: 'SET_CATASTRO_VISIBILITY', visible: value });
   };
 
   const handleSetCatastroOpacity = (opacityVal) => {
     setCatastroOpacity(opacityVal);
-    webViewRef.current?.postMessage(JSON.stringify({
-      type: 'SET_CATASTRO_OPACITY',
-      opacity: opacityVal
-    }));
+    mapViewerRef.current?.postMessage({ type: 'SET_CATASTRO_OPACITY', opacity: opacityVal });
   };
 
   const handleToggleIgnLabels = (value) => {
     setIgnLabelsVisible(value);
-    webViewRef.current?.postMessage(JSON.stringify({
-      type: 'SET_IGN_LABELS_VISIBILITY',
-      visible: value
-    }));
+    mapViewerRef.current?.postMessage({ type: 'SET_IGN_LABELS_VISIBILITY', visible: value });
   };
 
-  // --- Funciones de Medición ---
+  // --- Herramientas de Medición ---
   const startMeasureMode = (mode) => {
     setParcelDetails(null);
     setMeasureMode(mode);
     setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0, snapped: false });
-    webViewRef.current?.postMessage(JSON.stringify({
-      type: 'SET_MEASURE_MODE',
-      mode: mode
-    }));
+    setCurrentMeasurePoints([]);
+    mapViewerRef.current?.postMessage({ type: 'SET_MEASURE_MODE', mode });
   };
 
   const exitMeasureMode = () => {
     setMeasureMode(null);
     setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0, snapped: false });
-    webViewRef.current?.postMessage(JSON.stringify({
-      type: 'SET_MEASURE_MODE',
-      mode: null
-    }));
+    setCurrentMeasurePoints([]);
+    mapViewerRef.current?.postMessage({ type: 'SET_MEASURE_MODE', mode: null });
   };
 
   const toggleSnap = () => {
     const nextVal = !snapEnabled;
     setSnapEnabled(nextVal);
-    webViewRef.current?.postMessage(JSON.stringify({
-      type: 'SET_SNAP_ENABLED',
-      enabled: nextVal
-    }));
+    mapViewerRef.current?.postMessage({ type: 'SET_SNAP_ENABLED', enabled: nextVal });
   };
 
   const undoMeasurePoint = () => {
-    webViewRef.current?.postMessage(JSON.stringify({
-      type: 'MEASURE_UNDO'
-    }));
+    mapViewerRef.current?.postMessage({ type: 'MEASURE_UNDO' });
   };
 
   const clearMeasurePoints = () => {
     setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0, snapped: false });
-    webViewRef.current?.postMessage(JSON.stringify({
-      type: 'MEASURE_CLEAR'
-    }));
+    setCurrentMeasurePoints([]);
+    mapViewerRef.current?.postMessage({ type: 'MEASURE_CLEAR' });
   };
 
-  const formatDistance = (meters) => {
-    if (!meters || meters === 0) return '0 m';
-    if (meters >= 1000) {
-      return `${(meters / 1000).toFixed(2)} km`;
+  // --- Exportación e Importación KML ---
+  const handleExportKmlCurrent = async () => {
+    if (currentMeasurePoints.length === 0) {
+      Alert.alert('Sin puntos', 'Añade puntos en el mapa antes de exportar a KML.');
+      return;
     }
-    if (meters < 10) {
-      return `${meters.toFixed(2)} m`;
-    }
-    return `${meters.toFixed(1)} m`;
+    await exportMeasurementToKml({
+      name: 'Medición GeoCatastro',
+      mode: measureMode || 'area',
+      points: currentMeasurePoints,
+      stats: measureStats,
+      notes: ''
+    });
   };
 
-  const formatArea = (sqMeters) => {
-    if (!sqMeters || sqMeters === 0) return '0 m²';
-    if (sqMeters >= 10000) {
-      const ha = (sqMeters / 10000).toFixed(2);
-      return `${ha} ha (${Math.round(sqMeters).toLocaleString('es-ES')} m²)`;
-    }
-    if (sqMeters < 100) {
-      return `${sqMeters.toFixed(1)} m²`;
-    }
-    return `${Math.round(sqMeters).toLocaleString('es-ES')} m²`;
+  const handleImportKml = async () => {
+    const imported = await importKmlFile();
+    if (!imported) return;
+
+    // Cargar en el mapa
+    setParcelDetails(null);
+    setMeasureMode(imported.mode);
+    setMeasureStats(imported.stats);
+    setCurrentMeasurePoints(imported.points);
+
+    mapViewerRef.current?.postMessage({
+      type: 'LOAD_GEOMETRY',
+      mode: imported.mode,
+      points: imported.points
+    });
+
+    Alert.alert(
+      'KML Importado con Éxito',
+      `Se ha cargado "${imported.name}" con ${imported.points.length} vértices.\n¿Deseas guardarla en tus mediciones?`,
+      [
+        { text: 'Solo ver en mapa', style: 'cancel' },
+        {
+          text: '💾 Guardar Medición',
+          onPress: () => {
+            saveMeasurement(imported, imported.name, imported.notes)
+              .then(() => Alert.alert('Guardada', 'Medición guardada en tu historial.'))
+              .catch(() => {});
+          }
+        }
+      ]
+    );
   };
 
-  // HTML del visor Leaflet con Capas IGN, Esri, Medición y WMS Catastro
-  const leafletHTML = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-      <style>
-        body, html, #map { width: 100%; height: 100%; margin: 0; padding: 0; background-color: #e5e3df; }
-        .leaflet-control-attribution { font-size: 8px; background: rgba(255,255,255,0.7) !important; }
-      </style>
-    </head>
-    <body>
-      <div id="map"></div>
-      <script>
-        var map = L.map('map', { 
-          zoomControl: false, 
-          maxZoom: 24, 
-          minZoom: 5 
-        }).setView([40.4168, -3.7038], 16);
-        L.control.zoom({ position: 'bottomright' }).addTo(map);
-
-        // --- Definición de Capas Base con Sobremuestreo Suave hasta Zoom 24 ---
-        var baseLayers = {
-          'osm': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxNativeZoom: 19,
-            maxZoom: 24,
-            attribution: '© OpenStreetMap'
-          }),
-          'ign_base': L.tileLayer('https://www.ign.es/wmts/ign-base?service=WMTS&request=GetTile&version=1.0.0&layer=IGNBaseTodo&style=default&format=image/jpeg&TileMatrixSet=EPSG:3857&TileMatrix={z}&TileRow={y}&TileCol={x}', {
-            maxNativeZoom: 19,
-            maxZoom: 24,
-            attribution: '© IGN España'
-          }),
-          'ign_pnoa': L.tileLayer('https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetTile&version=1.0.0&layer=OI.OrthoimageCoverage&style=default&format=image/jpeg&TileMatrixSet=EPSG:3857&TileMatrix={z}&TileRow={y}&TileCol={x}', {
-            maxNativeZoom: 20,
-            maxZoom: 24,
-            attribution: '© IGN - PNOA'
-          }),
-          'esri_sat': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            maxNativeZoom: 19,
-            maxZoom: 24,
-            attribution: '© Esri Satellite'
-          })
-        };
-
-        var currentBaseKey = 'osm';
-        baseLayers[currentBaseKey].addTo(map);
-
-        // Capa de Rotulación IGN (Toponimia / Calles)
-        var ignLabelsLayer = L.tileLayer('https://www.ign.es/wmts/pnoa-ma?service=WMTS&request=GetTile&version=1.0.0&layer=Rotulacion&style=default&format=image/png&TileMatrixSet=EPSG:3857&TileMatrix={z}&TileRow={y}&TileCol={x}', {
-          maxNativeZoom: 20,
-          maxZoom: 24,
-          transparent: true
-        });
-
-        // --- Capa Catastral Unificada (WMS estándar + ArcGIS Export para Bizkaia) ---
-        var currentWMSUrl = 'https://ovc.catastro.meh.es/Cartografia/WMS/ServidorWMS.aspx';
-        var currentWMSLayers = 'catastro';
-        var currentLayerType = 'wms'; // 'wms' | 'arcgis_export'
-        var catastroVisible = true;
-        var catastroOpacity = 0.85;
-
-        // Capa ArcGIS Export personalizada (compatible XYZ con bbox calculado por tile)
-        var ArcGISExportLayer = L.GridLayer.extend({
-          options: { tileSize: 256, opacity: 0.85, zIndex: 10, maxZoom: 24 },
-          createTile: function(coords, done) {
-            var tile = document.createElement('img');
-            var tileSize = this.getTileSize().x;
-            var R = 20037508.342789244;
-            var n = Math.pow(2, coords.z);
-            var ts = 2 * R / n;
-            var minX = coords.x * ts - R;
-            var maxX = (coords.x + 1) * ts - R;
-            var maxY = R - coords.y * ts;
-            var minY = R - (coords.y + 1) * ts;
-            var bbox = minX + ',' + minY + ',' + maxX + ',' + maxY;
-            var baseUrl = currentWMSUrl; // Se reusa currentWMSUrl para la base
-            tile.src = baseUrl + '?bbox=' + bbox + '&bboxSR=3857&layers=show%3A38,39,40,42&size=' + tileSize + ',' + tileSize + '&imageSR=3857&format=png8&transparent=true&f=image&dpi=96';
-            tile.onload = function() { done(null, tile); };
-            tile.onerror = function(e) { done(e, tile); };
-            tile.style.opacity = catastroOpacity;
-            return tile;
-          }
-        });
-
-        var catastroWMS = null;
-
-        function buildWMSLayer() {
-          return L.tileLayer.wms(currentWMSUrl, {
-            layers: currentWMSLayers,
-            format: 'image/png',
-            transparent: true,
-            version: '1.1.1',
-            maxZoom: 24,
-            opacity: catastroOpacity,
-            zIndex: 10
-          });
-        }
-
-        function buildExportLayer() {
-          return new ArcGISExportLayer({ opacity: catastroOpacity, zIndex: 10 });
-        }
-
-        // Inicializar capa WMS por defecto
-        catastroWMS = buildWMSLayer().addTo(map);
-
-        function refreshCatastroLayer() {
-          if (catastroWMS) map.removeLayer(catastroWMS);
-          if (catastroVisible) {
-            catastroWMS = (currentLayerType === 'arcgis_export') ? buildExportLayer() : buildWMSLayer();
-            catastroWMS.addTo(map);
-            if (catastroWMS.bringToFront) catastroWMS.bringToFront();
-          }
-        }
-
-        var currentMarker = null;
-
-        // --- Sistema de Medición y Ajuste Magnético (Snapping) ---
-        var measureMode = null; // null | 'distance' | 'area'
-        var snapEnabled = true;
-        var cachedParcelVertices = []; // Array of L.latLng
-        var measurePoints = [];
-        var measureMarkers = [];
-        var measureLineOrPolygon = null;
-
-        function addCachedVertices(verts) {
-          if (!Array.isArray(verts)) return;
-          var addedCount = 0;
-          for (var i = 0; i < verts.length; i++) {
-            var v = verts[i];
-            var lat = Array.isArray(v) ? v[0] : (v.lat || v.latitude);
-            var lon = Array.isArray(v) ? v[1] : (v.lng || v.lon || v.longitude);
-            if (typeof lat === 'number' && typeof lon === 'number' && !isNaN(lat) && !isNaN(lon)) {
-              var ll = L.latLng(lat, lon);
-              var exists = false;
-              for (var j = 0; j < cachedParcelVertices.length; j++) {
-                if (cachedParcelVertices[j].distanceTo(ll) < 0.25) {
-                  exists = true;
-                  break;
-                }
-              }
-              if (!exists) {
-                cachedParcelVertices.push(ll);
-                addedCount++;
-              }
-            }
-          }
-
-          // Auto-ajuste inmediato del último punto si se acaba de recibir su geometría
-          if (addedCount > 0 && measurePoints.length > 0 && snapEnabled) {
-            var lastIdx = measurePoints.length - 1;
-            var lastPt = measurePoints[lastIdx];
-            var nearest = findNearestVertex(lastPt, 35);
-            if (nearest && (nearest.lat !== lastPt.lat || nearest.lng !== lastPt.lng)) {
-              measurePoints[lastIdx] = nearest;
-              triggerSnapVisual(nearest);
-              updateMeasureGraphics(true);
-            }
-          }
-        }
-
-        function findNearestVertex(clickLatLng, tolerancePixels) {
-          if (!snapEnabled || cachedParcelVertices.length === 0) return null;
-          var clickPt = map.latLngToContainerPoint(clickLatLng);
-          var bestVertex = null;
-          var minPixelDist = Infinity;
-          var tol = tolerancePixels || 35;
-
-          for (var i = 0; i < cachedParcelVertices.length; i++) {
-            var vLL = cachedParcelVertices[i];
-            var vPt = map.latLngToContainerPoint(vLL);
-            var dPix = clickPt.distanceTo(vPt);
-            var dMeters = clickLatLng.distanceTo(vLL);
-
-            if (dPix <= tol && dMeters <= 50) {
-              if (dPix < minPixelDist) {
-                minPixelDist = dPix;
-                bestVertex = vLL;
-              }
-            }
-          }
-          return bestVertex;
-        }
-
-        function triggerSnapVisual(latlng) {
-          var snapRing = L.circleMarker(latlng, {
-            radius: 14,
-            color: '#10b981',
-            weight: 3,
-            fillColor: '#34d399',
-            fillOpacity: 0.6
-          }).addTo(map);
-          setTimeout(function() {
-            try { map.removeLayer(snapRing); } catch(e) {}
-          }, 800);
-        }
-
-        function computePolygonArea(coords) {
-          if (!coords || coords.length < 3) return 0;
-          var len = coords.length;
-          var avgLat = 0;
-          for (var i = 0; i < len; i++) {
-            var pt = coords[i];
-            avgLat += (pt.lat !== undefined ? pt.lat : pt[0]);
-          }
-          avgLat = (avgLat / len) * (Math.PI / 180);
-          
-          // Factores de escala métrica WGS84 en el elipsoide
-          var kx = 111319.49079327357 * Math.cos(avgLat); // metros por grado de longitud
-          var ky = 111132.954; // metros por grado de latitud
-          
-          var area = 0;
-          for (var j = 0; j < len; j++) {
-            var c1 = coords[j];
-            var c2 = coords[(j + 1) % len];
-            var lat1 = c1.lat !== undefined ? c1.lat : c1[0];
-            var lng1 = c1.lng !== undefined ? c1.lng : (c1.lon !== undefined ? c1.lon : c1[1]);
-            var lat2 = c2.lat !== undefined ? c2.lat : c2[0];
-            var lng2 = c2.lng !== undefined ? c2.lng : (c2.lon !== undefined ? c2.lon : c2[1]);
-            
-            var x1 = lng1 * kx;
-            var y1 = lat1 * ky;
-            var x2 = lng2 * kx;
-            var y2 = lat2 * ky;
-            area += (x1 * y2 - x2 * y1);
-          }
-          return Math.abs(area / 2.0);
-        }
-
-        function updateMeasureGraphics(wasSnapped) {
-          // Limpiar marcadores y trazados anteriores
-          measureMarkers.forEach(function(m) { map.removeLayer(m); });
-          measureMarkers = [];
-          if (measureLineOrPolygon) {
-            map.removeLayer(measureLineOrPolygon);
-            measureLineOrPolygon = null;
-          }
-
-          if (measurePoints.length === 0) {
-            notifyRNMeasureUpdate(0, 0, 0, 0, false);
-            return;
-          }
-
-          var totalDistance = 0;
-          var totalArea = 0;
-          var totalPerimeter = 0;
-
-          // Dibujar vértices
-          for (var i = 0; i < measurePoints.length; i++) {
-            var pt = measurePoints[i];
-            var isLast = (i === measurePoints.length - 1);
-            var marker = L.circleMarker([pt.lat, pt.lng], {
-              radius: isLast ? 7 : 5,
-              color: '#ffffff',
-              weight: 2,
-              fillColor: measureMode === 'distance' ? '#e63946' : '#0066cc',
-              fillOpacity: 1
-            }).addTo(map);
-            measureMarkers.push(marker);
-          }
-
-          if (measureMode === 'distance') {
-            for (var j = 0; j < measurePoints.length - 1; j++) {
-              totalDistance += L.latLng(measurePoints[j]).distanceTo(L.latLng(measurePoints[j + 1]));
-            }
-            if (measurePoints.length >= 2) {
-              measureLineOrPolygon = L.polyline(measurePoints, {
-                color: '#e63946',
-                weight: 3.5,
-                dashArray: '6, 6',
-                opacity: 0.95
-              }).addTo(map);
-            }
-            notifyRNMeasureUpdate(totalDistance, 0, 0, measurePoints.length, wasSnapped);
-          } else if (measureMode === 'area') {
-            if (measurePoints.length >= 3) {
-              totalArea = computePolygonArea(measurePoints);
-              for (var k = 0; k < measurePoints.length; k++) {
-                totalPerimeter += L.latLng(measurePoints[k]).distanceTo(L.latLng(measurePoints[(k + 1) % measurePoints.length]));
-              }
-              measureLineOrPolygon = L.polygon(measurePoints, {
-                color: '#0066cc',
-                weight: 2.5,
-                fillColor: '#0066cc',
-                fillOpacity: 0.3,
-                dashArray: '4, 4'
-              }).addTo(map);
-            } else if (measurePoints.length === 2) {
-              totalPerimeter = L.latLng(measurePoints[0]).distanceTo(L.latLng(measurePoints[1]));
-              measureLineOrPolygon = L.polyline(measurePoints, {
-                color: '#0066cc',
-                weight: 2.5,
-                dashArray: '4, 4',
-                opacity: 0.8
-              }).addTo(map);
-            }
-            notifyRNMeasureUpdate(totalPerimeter, totalArea, totalPerimeter, measurePoints.length, wasSnapped);
-          }
-        }
-
-        function notifyRNMeasureUpdate(dist, area, perim, count, snapped) {
-          try {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'MEASURE_UPDATE',
-              distance: dist,
-              area: area,
-              perimeter: perim,
-              pointsCount: count,
-              snapped: !!snapped
-            }));
-          } catch(e) {}
-        }
-
-        function clearAllMeasure() {
-          measurePoints = [];
-          updateMeasureGraphics(false);
-        }
-
-        // --- Manejador de Mensajes desde React Native ---
-        function handleRNMessage(event) {
-          try {
-            var rawData = event.data;
-            var data = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
-            
-            if (data.type === 'CHANGE_REGION') {
-              currentWMSUrl = data.wmsUrl;
-              currentWMSLayers = data.wmsLayers || 'catastro';
-              currentLayerType = data.layerType || 'wms';
-              refreshCatastroLayer();
-            } else if (data.type === 'MOVE_TO') {
-              map.setView([data.lat, data.lon], Math.min(Math.max(map.getZoom(), 19), 24));
-              if (currentMarker) map.removeLayer(currentMarker);
-              currentMarker = L.marker([data.lat, data.lon]).addTo(map);
-              if (data.ref && data.ref !== 'Sin edificio en el centro de la calle') {
-                currentMarker.bindPopup('<b>Ref. Catastral:</b><br>' + data.ref).openPopup();
-              }
-            } else if (data.type === 'SET_BASE_LAYER') {
-              if (baseLayers[currentBaseKey]) map.removeLayer(baseLayers[currentBaseKey]);
-              currentBaseKey = data.layer;
-              if (baseLayers[currentBaseKey]) {
-                baseLayers[currentBaseKey].addTo(map);
-                baseLayers[currentBaseKey].bringToBack();
-              }
-            } else if (data.type === 'SET_CATASTRO_VISIBILITY') {
-              catastroVisible = data.visible;
-              refreshCatastroLayer();
-            } else if (data.type === 'SET_CATASTRO_OPACITY') {
-              catastroOpacity = data.opacity;
-              if (catastroWMS) catastroWMS.setOpacity(catastroOpacity);
-            } else if (data.type === 'SET_IGN_LABELS_VISIBILITY') {
-              if (data.visible) {
-                ignLabelsLayer.addTo(map);
-              } else {
-                map.removeLayer(ignLabelsLayer);
-              }
-            } else if (data.type === 'SET_MEASURE_MODE') {
-              measureMode = data.mode;
-              clearAllMeasure();
-              if (data.mode) {
-                var center = map.getCenter();
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'MEASURE_TAP_GEOQUERY',
-                  lat: center.lat,
-                  lon: center.lng
-                }));
-              }
-            } else if (data.type === 'SET_SNAP_ENABLED') {
-              snapEnabled = !!data.enabled;
-            } else if (data.type === 'REGISTER_PARCEL_VERTICES') {
-              addCachedVertices(data.vertices);
-            } else if (data.type === 'CLEAR_PARCEL_VERTICES') {
-              cachedParcelVertices = [];
-            } else if (data.type === 'MEASURE_UNDO') {
-              if (measurePoints.length > 0) {
-                measurePoints.pop();
-                updateMeasureGraphics(false);
-              }
-            } else if (data.type === 'MEASURE_CLEAR') {
-              clearAllMeasure();
-            }
-          } catch(e) {}
-        }
-
-        window.addEventListener('message', handleRNMessage);
-        document.addEventListener('message', handleRNMessage);
-
-        map.on('moveend', function() {
-          var center = map.getCenter();
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'MAP_MOVED',
-            lat: center.lat,
-            lon: center.lng
-          }));
-          if (measureMode && snapEnabled) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'MEASURE_TAP_GEOQUERY',
-              lat: center.lat,
-              lon: center.lng
-            }));
-          }
-        });
-
-        map.on('click', function(e) {
-          if (measureMode) {
-            var targetPoint = e.latlng;
-            var wasSnapped = false;
-            if (snapEnabled) {
-              var nearest = findNearestVertex(e.latlng, 35);
-              if (nearest) {
-                targetPoint = nearest;
-                wasSnapped = true;
-                triggerSnapVisual(nearest);
-              }
-            }
-            measurePoints.push(targetPoint);
-            updateMeasureGraphics(wasSnapped);
-
-            // Consultar geometría de parcela en segundo plano para alimentar el imán
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'MEASURE_TAP_GEOQUERY',
-              lat: e.latlng.lat,
-              lon: e.latlng.lng
-            }));
-          } else {
-            if (currentMarker) map.removeLayer(currentMarker);
-            currentMarker = L.marker([e.latlng.lat, e.latlng.lng]).addTo(map);
-            
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'MAP_CLICK',
-              lat: e.latlng.lat,
-              lon: e.latlng.lng
-            }));
-          }
-        });
-      </script>
-    </body>
-    </html>
-  `;
-
-  // Generador de script para el Visor In-App de Gipuzkoa (con zoom, formateo y autofoco de finca)
-  const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
-    (function() {
-      // 1. Inyectar meta viewport y estilo CSS optimizado para móvil
-      try {
-        var meta = document.createElement('meta');
-        meta.name = 'viewport';
-        meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes';
-        document.getElementsByTagName('head')[0].appendChild(meta);
-
-        var style = document.createElement('style');
-        style.innerHTML = \`
-          html, body {
-            overflow-x: auto !important;
-            overflow-y: auto !important;
-            min-width: 100% !important;
-            margin: 0 !important;
-            padding: 8px !important;
-            background-color: #ffffff !important;
-            box-sizing: border-box !important;
-            -webkit-text-size-adjust: 100% !important;
-          }
-          * {
-            box-sizing: border-box !important;
-          }
-          form {
-            float: none !important;
-            width: 100% !important;
-            display: block !important;
-          }
-          table {
-            width: 100% !important;
-            max-width: 100% !important;
-            border-collapse: collapse !important;
-            table-layout: auto !important;
-          }
-          #bodyTable, #tblParcelas {
-            width: 100% !important;
-            display: table !important;
-          }
-          tr {
-            display: table-row !important;
-            visibility: visible !important;
-          }
-          td, th {
-            font-size: 13px !important;
-            line-height: 1.4 !important;
-            padding: 6px 4px !important;
-            white-space: normal !important;
-            word-break: break-word !important;
-            display: table-cell !important;
-            visibility: visible !important;
-          }
-          .textSec td, tr.textSec td {
-            background-color: #666666 !important;
-            color: #ffffff !important;
-            font-weight: bold !important;
-            font-size: 12px !important;
-          }
-          .textGrid td, tr.textGrid td {
-            background-color: #f9f9f9 !important;
-            color: #000000 !important;
-            font-size: 13px !important;
-          }
-          a {
-            color: #0055a5 !important;
-            text-decoration: underline !important;
-            font-weight: bold !important;
-            font-size: 13px !important;
-          }
-          .header {
-            font-size: 15px !important;
-            font-weight: bold !important;
-            padding: 8px !important;
-            background-color: #0055a5 !important;
-            color: #ffffff !important;
-          }
-          .downGroup {
-            min-height: 60px !important;
-            padding: 6px !important;
-            border: 1px solid #ccc !important;
-            border-radius: 6px !important;
-            background-color: #f5f5f5 !important;
-          }
-          .selector1, .selector2, img[src*="flecha"], img[src*="contaritos"] {
-            display: none !important;
-          }
-        \`;
-        document.getElementsByTagName('head')[0].appendChild(style);
-      } catch (e) {}
-
-      // 2. Si estamos en tooltip/urbana.aspx y se pide una finca específica, hacer clic en "Ver"
-      var targetFinca = ${JSON.stringify(targetFinca)};
-      var targetDigito = ${JSON.stringify(targetDigito)};
-
-      var currentUrl = window.location.href;
-      if (currentUrl.indexOf('urbana.aspx') !== -1 && targetFinca) {
-        var verLink = document.querySelector('table#tblParcelas a[href*="refMapa.asp"]');
-        if (verLink) {
-          setTimeout(function() {
-            window.location.href = verLink.href;
-          }, 300);
-        }
-      }
-
-      // 3. Si estamos en refCatastral.asp y hay una finca objetivo, ejecutar EnviarDatosFinca
-      if (currentUrl.indexOf('refCatastral.asp') !== -1 && targetFinca) {
-        if (typeof EnviarDatosFinca === 'function') {
-          setTimeout(function() {
-            EnviarDatosFinca(targetFinca, targetDigito);
-          }, 300);
-        }
-      }
-    })();
-    true;
-  `;
-
-  // Generador de script de autorrellenado automático para Bizkaia
-  const getBizkaiaInjectedJs = (dni, parcelRef, isBI = false, targetNumFijo = '', targetDoor = '', targetCargo = '') => `
-    (function() {
-      var dni = ${JSON.stringify(dni)};
-      var ref = ${JSON.stringify(parcelRef)};
-      var isBI = ${isBI};
-      var targetNumFijo = ${JSON.stringify(targetNumFijo)};
-      var targetDoor = ${JSON.stringify(targetDoor)};
-      var targetCargo = ${JSON.stringify(targetCargo)};
-
-      
-      window.latestPdfUrl = '';
-      window.latestPdfBase64 = '';
-
-      window.triggerSharePdf = function() {
-        if (window.ReactNativeWebView) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'TRIGGER_SHARE'
-          }));
-        }
-      };
-
-      // Cargar PDF.js dinámicamente para renderizar el documento en pantalla
-      function loadPdfJs(callback) {
-        if (window.pdfjsLib) {
-          callback();
-          return;
-        }
-        var script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-        script.onload = function() {
-          if (window.pdfjsLib) {
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-          }
-          callback();
-        };
-        document.head.appendChild(script);
-      }
-
-      function renderPdfPages(docTab, fullUrl) {
-        if (docTab.getAttribute('data-pdf-rendered')) return;
-        docTab.setAttribute('data-pdf-rendered', 'true');
-
-        fetch(fullUrl, { credentials: 'include' })
-          .then(function(res) {
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            return res.blob();
-          })
-          .then(function(blob) {
-            var reader = new FileReader();
-            reader.onloadend = function() {
-              var base64data = reader.result;
-              window.latestPdfBase64 = base64data;
-              
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'PDF_BASE64',
-                  dataUrl: base64data,
-                  url: fullUrl
-                }));
-              }
-
-              var banner = document.createElement('div');
-              banner.style.cssText = 'padding:14px;background:#fef2f2;border:2px solid #ef4444;border-radius:10px;margin:12px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1);';
-              banner.innerHTML = '<p style="font-weight:bold;color:#991b1b;margin-bottom:10px;font-size:15px;">📄 Ficha Catastral Oficial Lista</p>' +
-                '<button type="button" onclick="window.triggerSharePdf()" style="display:inline-block;background:#cc0000;color:#fff;font-weight:bold;padding:12px 24px;border-radius:8px;border:none;font-size:15px;box-shadow:0 3px 6px rgba(0,0,0,0.2);cursor:pointer;">📤 GUARDAR / COMPARTIR FICHA</button>' +
-                '<div id="pdf-canvas-container" style="margin-top:15px;"><p style="color:#666;font-size:13px;">Cargando visor de páginas...</p></div>';
-              docTab.insertBefore(banner, docTab.firstChild);
-
-              loadPdfJs(function() {
-                if (!window.pdfjsLib) return;
-                var raw = window.atob(base64data.split(',')[1]);
-                var rawLength = raw.length;
-                var array = new Uint8Array(new ArrayBuffer(rawLength));
-                for (var i = 0; i < rawLength; i++) {
-                  array[i] = raw.charCodeAt(i);
-                }
-
-                window.pdfjsLib.getDocument({ data: array }).promise.then(function(pdfDoc) {
-                  var container = document.getElementById('pdf-canvas-container');
-                  if (container) container.innerHTML = '';
-                  var numPages = pdfDoc.numPages;
-                  for (var pageNum = 1; pageNum <= numPages; pageNum++) {
-                    (function(num) {
-                      pdfDoc.getPage(num).then(function(page) {
-                        var viewport = page.getViewport({ scale: 1.5 });
-                        var canvas = document.createElement('canvas');
-                        var ctx = canvas.getContext('2d');
-                        canvas.height = viewport.height;
-                        canvas.width = viewport.width;
-                        canvas.style.cssText = 'max-width:100%;height:auto;margin:10px auto;border:1px solid #ccc;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.15);display:block;background:#fff;';
-                        if (container) container.appendChild(canvas);
-
-                        page.render({
-                          canvasContext: ctx,
-                          viewport: viewport
-                        });
-                      });
-                    })(pageNum);
-                  }
-                });
-              });
-            };
-            reader.readAsDataURL(blob);
-          })
-          .catch(function(err) {
-            var banner = document.createElement('div');
-            banner.style.cssText = 'padding:14px;background:#fef2f2;border:2px solid #ef4444;border-radius:10px;margin:12px;text-align:center;';
-            banner.innerHTML = '<p style="font-weight:bold;color:#991b1b;margin-bottom:10px;">📄 Ficha Catastral Lista</p>' +
-              '<button type="button" onclick="window.triggerSharePdf()" style="background:#cc0000;color:#fff;font-weight:bold;padding:12px 24px;border-radius:8px;border:none;cursor:pointer;">📤 GUARDAR / COMPARTIR FICHA</button>';
-            docTab.insertBefore(banner, docTab.firstChild);
-          });
-      }
-
-      // Vigilante continuo de PDFs generados en la página (SOLO cuando el certificado está listo tras el Captcha)
-      setInterval(function() {
-        try {
-          // 1. Buscar en la pestaña de documento idTabResultadopdfCDocumentoCodigo (se crea tras validar el captcha)
-          var docTab = document.getElementById('form1:resultadopdf:idTabResultadopdfCDocumentoCodigo');
-          if (docTab) {
-            var ifr = docTab.querySelector('iframe, object, embed');
-            var pSrc = ifr ? (ifr.src || ifr.data) : '';
-            if (pSrc && !pSrc.includes('recaptcha') && !pSrc.includes('google.com') && !pSrc.includes('gstatic')) {
-              var fullPSrc = pSrc.startsWith('/') ? (window.location.origin + pSrc) : pSrc;
-              window.latestPdfUrl = fullPSrc;
-              renderPdfPages(docTab, fullPSrc);
-              
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'PDF_READY',
-                  url: fullPSrc
-                }));
-              }
-            }
-          }
-
-          // 2. Buscar enlaces o elementos directos con extensión .pdf generados
-          var pdfLinks = document.querySelectorAll('a[href*=".pdf"], iframe[src*=".pdf"], object[data*=".pdf"], embed[src*=".pdf"]');
-          for (var p = 0; p < pdfLinks.length; p++) {
-            var pEl = pdfLinks[p];
-            var linkSrc = pEl.href || pEl.src || pEl.data;
-            if (linkSrc && !linkSrc.includes('recaptcha') && !linkSrc.includes('google.com') && !linkSrc.includes('gstatic') && !pEl.getAttribute('data-pdf-notified')) {
-              pEl.setAttribute('data-pdf-notified', 'true');
-              var fullLinkSrc = linkSrc.startsWith('/') ? (window.location.origin + linkSrc) : linkSrc;
-              window.latestPdfUrl = fullLinkSrc;
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'PDF_READY',
-                  url: fullLinkSrc
-                }));
-              }
-            }
-          }
-        } catch (e) {}
-      }, 500);
-
-      function fillField(id, val) {
-        var el = document.getElementById(id);
-        if (el) {
-          el.value = val;
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-          el.dispatchEvent(new Event('blur', { bubbles: true }));
-        }
-        return el;
-      }
-
-      function startAutofill() {
-        try {
-          // Marcar "Con Gráfico"
-          var grafRadio = document.getElementById('form1:grafico:0');
-          if (grafRadio && !grafRadio.checked) {
-            grafRadio.checked = true;
-            if (typeof PrimeFaces !== 'undefined' && PrimeFaces.ab) {
-              PrimeFaces.ab({
-                s: "form1:grafico",
-                e: "change",
-                p: "form1:grafico",
-                u: "form1:panelFiltroGrafico",
-                ps: true
-              });
-            } else if (grafRadio.onchange) {
-              grafRadio.onchange();
-            }
-          }
-
-          fillField('form1:textNifSolicitanteFichaCatastral', dni);
-          fillField('form1:panelBusquedaNifCheckSolicitanteFichaCatastral', '1');
-          
-          if (typeof buscarSolicitanteFichaCatastral === 'function') {
-            buscarSolicitanteFichaCatastral();
-          }
-
-          setTimeout(function() {
-            var radioId = isBI ? 'form1:consolePublico:1' : 'form1:consolePublico:3';
-            var inputId = isBI ? 'form1:textBI' : 'form1:textParcela';
-
-            var radioOpt = document.getElementById(radioId);
-            if (radioOpt) {
-              radioOpt.checked = true;
-              if (typeof PrimeFaces !== 'undefined' && PrimeFaces.ab) {
-                PrimeFaces.ab({
-                  s: "form1:consolePublico",
-                  e: "change",
-                  p: "form1:consolePublico",
-                  u: "form1:panelSeleccionFichaCatastral form1:panelBotoneraBuscar"
-                });
-              } else if (radioOpt.onchange) {
-                radioOpt.onchange();
-              }
-            }
-
-            var attempts = 0;
-            var interval = setInterval(function() {
-              attempts++;
-              var textInput = document.getElementById(inputId);
-              var btnBuscar = document.getElementById('form1:cmdButtonBuscar');
-              if (textInput && btnBuscar) {
-                clearInterval(interval);
-                fillField(inputId, ref);
-                setTimeout(function() {
-                  btnBuscar.click();
-                  waitForResultsAndHighlight();
-                }, 400);
-              }
-              if (attempts > 30) clearInterval(interval);
-            }, 300);
-          }, 600);
-        } catch (e) {
-          console.error('Error autorrellenando Bizkaia:', e);
-        }
-      }
-
-      function waitForResultsAndHighlight() {
-        var resAttempts = 0;
-        var resInterval = setInterval(function() {
-          resAttempts++;
-          var rows = document.querySelectorAll('tr[role="row"]');
-          if (rows.length > 1) {
-            clearInterval(resInterval);
-            var matchedRow = null;
-            
-            for (var i = 1; i < rows.length; i++) {
-              var rowText = rows[i].innerText || '';
-              if (targetNumFijo && rowText.includes(targetNumFijo)) {
-                matchedRow = rows[i];
-                break;
-              }
-              if (targetDoor && rowText.toLowerCase().includes(targetDoor.toLowerCase().trim())) {
-                matchedRow = rows[i];
-                break;
-              }
-            }
-
-            if (!matchedRow && rows.length > 1) {
-              matchedRow = rows[1];
-            }
-
-            if (matchedRow) {
-              matchedRow.style.backgroundColor = '#fff3cd';
-              matchedRow.style.border = '2px solid #cc0000';
-              matchedRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              
-              if (targetNumFijo || targetDoor) {
-                var docLink = matchedRow.querySelector('a.ui-commandlink, a[id*="idCommandLinkCargaCaptchaFichaCatastral"]');
-                if (docLink) {
-                  setTimeout(function() {
-                    docLink.click();
-                  }, 600);
-                }
-              }
-            }
-          }
-          if (resAttempts > 40) clearInterval(resInterval);
-        }, 400);
-      }
-
-      if (document.readyState === 'complete') {
-        setTimeout(startAutofill, 400);
-      } else {
-        window.addEventListener('load', function() { setTimeout(startAutofill, 400); });
-      }
-    })();
-    true;
-  `;
-
-  // Compartir o Guardar Ficha Catastral Oficial como archivo PDF real
-  const handleSharePdf = async () => {
+  // --- Guardar y Cargar Mediciones ---
+  const handleSaveActiveMeasurement = async (data) => {
     try {
-      if (fichaPdfDataUrl) {
-        // Extraer la parte base64 pura del data URL (quitar "data:application/pdf;base64,")
-        const base64Data = fichaPdfDataUrl.split(',')[1] || fichaPdfDataUrl;
-        const fileName = 'Ficha_Catastral_' + (fichaTitle || 'Bizkaia').replace(/[^a-zA-Z0-9]/g, '_') + '.pdf';
-        const fileUri = FileSystem.documentDirectory + fileName;
-
-        // Escribir el PDF al sistema de archivos temporal
-        await FileSystem.writeAsStringAsync(fileUri, base64Data, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-
-        // Compartir el archivo PDF real con el menú nativo del sistema
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(fileUri, {
-            mimeType: 'application/pdf',
-            dialogTitle: 'Guardar o Compartir Ficha Catastral'
-          });
-        } else {
-          Alert.alert('Error', 'La función de compartir no está disponible en este dispositivo.');
-        }
-      } else if (fichaPdfUrl) {
-        // Fallback: compartir la URL
-        await Share.share({
-          title: 'Ficha Catastral Oficial',
-          message: fichaPdfUrl,
-          url: fichaPdfUrl
-        });
-      }
-    } catch (error) {
-      console.error('Error compartiendo PDF:', error);
-      Alert.alert('Detalles del Error', error.message || error.toString());
+      await saveMeasurement({
+        ...data,
+        mode: measureMode,
+        points: currentMeasurePoints,
+        stats: measureStats
+      }, data.name, data.notes);
+      Alert.alert('Éxito', 'Medición guardada en tu historial.');
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo guardar la medición.');
     }
   };
 
-  // Manejador de eventos desde el WebView de Ficha
-  const handleFichaMessage = (event) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'PDF_BASE64') {
-        setFichaPdfDataUrl(data.dataUrl);
-        if (data.url) setFichaPdfUrl(data.url);
-      } else if (data.type === 'PDF_READY' && data.url) {
-        const urlLower = data.url.toLowerCase();
-        if (urlLower.includes('recaptcha') || urlLower.includes('google.com') || urlLower.includes('gstatic') || urlLower.includes('about:blank')) {
-          return;
-        }
-        setFichaPdfUrl(data.url);
-      } else if (data.type === 'TRIGGER_SHARE') {
-        handleSharePdf();
-      }
-    } catch (e) {}
+  const handleLoadSavedMeasurement = (item) => {
+    setParcelDetails(null);
+    setMeasureMode(item.mode);
+    setMeasureStats(item.stats || {});
+    setCurrentMeasurePoints(item.points || []);
+
+    mapViewerRef.current?.postMessage({
+      type: 'LOAD_GEOMETRY',
+      mode: item.mode,
+      points: item.points
+    });
   };
 
-  // Guardar DNI del usuario en almacenamiento local
+  // --- Favoritos ---
+  const handleOpenSaveFavoriteModal = (parcel) => {
+    setFavModalParcel(parcel);
+    setSaveFavModalVisible(true);
+  };
+
+  const handleSaveFavoriteParcel = async (parcel, customName, notes) => {
+    try {
+      await saveFavorite(parcel, customName, notes);
+      Alert.alert('Favorito Guardado', `"${customName}" se ha guardado en tus favoritos.`);
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo guardar el favorito.');
+    }
+  };
+
+  const handleSelectFavorite = async (item) => {
+    const targetRef = item.ref20 || item.refCat;
+    setQuery(item.customName || item.address);
+    if (item.region && item.region !== selectedRegion) {
+      changeRegion(item.region);
+    }
+
+    if (item.lat && item.lon) {
+      mapViewerRef.current?.postMessage({
+        type: 'MOVE_TO',
+        lat: item.lat,
+        lon: item.lon,
+        ref: targetRef
+      });
+      await fetchFullParcelDetails(targetRef, item.lat, item.lon, item.region || selectedRegion);
+    } else {
+      // Buscar coordenadas por RC
+      onSelectSuggestion({ isRC: true, rc: targetRef });
+    }
+  };
+
+  // --- Búsqueda Rústica ---
+  const handleSelectRusticParcel = async ({ lat, lon, ref, address }) => {
+    setQuery(address || ref);
+    saveRecentSearch(address || ref);
+
+    mapViewerRef.current?.postMessage({
+      type: 'MOVE_TO',
+      lat,
+      lon,
+      ref
+    });
+
+    await fetchFullParcelDetails(ref, lat, lon, selectedRegion);
+  };
+
+  // --- Ficha Oficial y DNI ---
   const saveUserDni = async (dniToSave) => {
     const clean = String(dniToSave || '').trim().toUpperCase();
     setSavedDni(clean);
@@ -1331,7 +502,6 @@ export default function App() {
     }
   };
 
-  // Abrir Ficha Oficial delegado a CadastreService o Visor In-App
   const openOfficialFicha = async (item) => {
     if (selectedRegion === 'BI' && !savedDni) {
       setPendingFichaItem(item);
@@ -1397,7 +567,53 @@ export default function App() {
     await cadastreService.openOfficialFicha(ref, item.del, item.mun, item.parCode, item.subareaCode, selectedRegion, item.polCode, dni);
   };
 
-  // Obtener datos de parcelas e inmuebles
+  const handleSharePdf = async () => {
+    try {
+      if (fichaPdfDataUrl) {
+        const base64Data = fichaPdfDataUrl.split(',')[1] || fichaPdfDataUrl;
+        const fileName = 'Ficha_Catastral_' + (fichaTitle || 'Bizkaia').replace(/[^a-zA-Z0-9]/g, '_') + '.pdf';
+        const fileUri = FileSystem.documentDirectory + fileName;
+
+        await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'application/pdf',
+            dialogTitle: 'Guardar o Compartir Ficha Catastral'
+          });
+        }
+      } else if (fichaPdfUrl) {
+        await Share.share({
+          title: 'Ficha Catastral Oficial',
+          message: fichaPdfUrl,
+          url: fichaPdfUrl
+        });
+      }
+    } catch (error) {
+      console.error('Error compartiendo PDF:', error);
+    }
+  };
+
+  const handleFichaMessage = (event) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'PDF_BASE64') {
+        setFichaPdfDataUrl(data.dataUrl);
+        if (data.url) setFichaPdfUrl(data.url);
+      } else if (data.type === 'PDF_READY' && data.url) {
+        const urlLower = data.url.toLowerCase();
+        if (!urlLower.includes('recaptcha') && !urlLower.includes('google.com') && !urlLower.includes('gstatic') && !urlLower.includes('about:blank')) {
+          setFichaPdfUrl(data.url);
+        }
+      } else if (data.type === 'TRIGGER_SHARE') {
+        handleSharePdf();
+      }
+    } catch (e) {}
+  };
+
+  // --- Consultas Catastrales ---
   const fetchFullParcelDetails = async (refCat, lat, lon, regionOverride) => {
     setLoading(true);
     setSubparcels([]);
@@ -1417,14 +633,13 @@ export default function App() {
       setSubparcels(data.subparcels || []);
       setParcelDetails(data.parcelDetails);
 
-      // Alimentar el sistema de imán con los vértices oficiales de la parcela
       cadastreService.fetchParcelGeometry(refCat, lat, lon, targetRegion)
         .then((verts) => {
           if (verts && verts.length > 0) {
-            webViewRef.current?.postMessage(JSON.stringify({
+            mapViewerRef.current?.postMessage({
               type: 'REGISTER_PARCEL_VERTICES',
               vertices: verts
-            }));
+            });
           }
         })
         .catch(() => {});
@@ -1442,7 +657,6 @@ export default function App() {
     }
   };
 
-  // Clic en Coordenadas del Mapa con Sondeo Espacial de Radio
   const fetchParcelByCoords = async (lat, lon, regionOverride) => {
     setLoading(true);
     const detectedRegion = cadastreService.detectRegionFromCoords(lat, lon);
@@ -1452,11 +666,11 @@ export default function App() {
       changeRegion(targetRegion);
     }
 
-    webViewRef.current?.postMessage(JSON.stringify({
+    mapViewerRef.current?.postMessage({
       type: 'MOVE_TO',
       lat,
       lon
-    }));
+    });
 
     try {
       const result = await cadastreService.fetchParcelByCoords(lat, lon, targetRegion);
@@ -1464,12 +678,12 @@ export default function App() {
       if (result && result.found) {
         setSelectedParcel({ lat, lon, ref: result.ref });
 
-        webViewRef.current?.postMessage(JSON.stringify({
+        mapViewerRef.current?.postMessage({
           type: 'MOVE_TO',
           lat,
           lon,
           ref: result.ref
-        }));
+        });
 
         await fetchFullParcelDetails(result.ref, lat, lon, targetRegion);
       } else {
@@ -1490,7 +704,7 @@ export default function App() {
     }
   };
 
-  // Buscador de Direcciones usando ArcGIS Cartociudad con outFields=* (extrae Pedanía / District)
+  // --- Buscador de Direcciones y Referencias ---
   const handleSearchTextChange = (text) => {
     setQuery(text);
     setShowRecent(false);
@@ -1503,7 +717,6 @@ export default function App() {
 
     const cleanText = text.trim().toUpperCase();
 
-    // Detección segura de Referencia Catastral a partir de 13 caracteres sin espacios
     if (cleanText.length >= 13 && !cleanText.includes(' ') && /^[A-Z0-9]+$/.test(cleanText)) {
       setSuggestions([{
         place_id: 'rc_direct',
@@ -1513,6 +726,7 @@ export default function App() {
       }]);
       return;
     }
+
     typingTimer.current = setTimeout(async () => {
       try {
         const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(text)}&countryCode=ESP&maxLocations=6&outFields=*`;
@@ -1550,58 +764,7 @@ export default function App() {
           });
           setSuggestions(mapped);
         } else {
-          // Intentar primero con la API suggest de ArcGIS para consultas de calle + número sin municipio
-          const urlSuggest = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/suggest?f=json&text=${encodeURIComponent(text)}&countryCode=ESP&maxSuggestions=6`;
-          const resS = await fetch(urlSuggest);
-          const dataS = await resS.json();
-
-          if (dataS?.suggestions?.length > 0) {
-            const mappedSuggestions = [];
-            for (const s of dataS.suggestions) {
-              if (s.magicKey) {
-                try {
-                  const urlKey = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&magicKey=${s.magicKey}&outFields=*`;
-                  const resKey = await fetch(urlKey);
-                  const dataKey = await resKey.json();
-                  if (dataKey?.candidates?.[0]) {
-                    const c = dataKey.candidates[0];
-                    const attrs = c.attributes || {};
-                    const district = attrs.District || attrs.Neighborhood || '';
-                    const city = attrs.City || attrs.Subregion || '';
-
-                    let formattedTitle = c.address;
-                    if (district && !c.address.toLowerCase().includes(district.toLowerCase())) {
-                      const parts = c.address.split(',');
-                      if (parts.length >= 2) {
-                        formattedTitle = `${parts[0].trim()}, ${district} (${parts.slice(1).join(',').trim()})`;
-                      } else {
-                        formattedTitle = `${c.address}, ${district}`;
-                      }
-                    }
-
-                    const fullAddrText = `${formattedTitle} ${district} ${city}`;
-                    const region = cadastreService.detectRegionFromCoords(c.location.y, c.location.x, fullAddrText);
-
-                    mappedSuggestions.push({
-                      place_id: `arcgis_sugg_${s.magicKey}`,
-                      display_name: formattedTitle,
-                      lat: c.location.y,
-                      lon: c.location.x,
-                      district,
-                      city,
-                      region
-                    });
-                  }
-                } catch(e) {}
-              }
-            }
-            if (mappedSuggestions.length > 0) {
-              setSuggestions(mappedSuggestions);
-              return;
-            }
-          }
-
-          // Fallback final a Nominatim si no hay resultados en ArcGIS
+          // Fallback a Nominatim
           const fallbackUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(text)}&format=json&countrycodes=es&limit=5`;
           const resNom = await fetch(fallbackUrl, {
             headers: { 'User-Agent': 'CatastroGSM-App/1.0' }
@@ -1650,12 +813,12 @@ export default function App() {
   const changeRegion = (newRegion) => {
     if (newRegion !== selectedRegion) {
       setSelectedRegion(newRegion);
-      webViewRef.current?.postMessage(JSON.stringify({
+      mapViewerRef.current?.postMessage({
         type: 'CHANGE_REGION',
         wmsUrl: cadastreService.getWMSUrl(newRegion),
         wmsLayers: cadastreService.getWMSLayers(newRegion),
         layerType: cadastreService.getWMSLayerType(newRegion)
-      }));
+      });
     }
   };
 
@@ -1673,12 +836,12 @@ export default function App() {
         
         if (result && result.found) {
           setSelectedParcel({ lat: result.lat, lon: result.lon, ref: item.rc });
-          webViewRef.current?.postMessage(JSON.stringify({
+          mapViewerRef.current?.postMessage({
             type: 'MOVE_TO',
             lat: result.lat,
             lon: result.lon,
             ref: item.rc
-          }));
+          });
 
           await fetchFullParcelDetails(item.rc, result.lat, result.lon, selectedRegion);
         } else {
@@ -1692,7 +855,6 @@ export default function App() {
       return;
     }
 
-    // Dirección normal
     setQuery(item.display_name);
     saveRecentSearch(item.display_name);
 
@@ -1703,11 +865,11 @@ export default function App() {
     const lat = parseFloat(item.lat);
     const lon = parseFloat(item.lon);
 
-    webViewRef.current?.postMessage(JSON.stringify({
+    mapViewerRef.current?.postMessage({
       type: 'MOVE_TO',
       lat,
       lon
-    }));
+    });
 
     await fetchParcelByCoords(lat, lon, item.region);
   };
@@ -1723,273 +885,88 @@ export default function App() {
     Alert.alert('Copiado', `Referencia copiada al portapapeles:\n${text}`);
   };
 
-  const cleanQuery = query.trim().toUpperCase();
-  const isRCInput = cleanQuery.length >= 13 && !cleanQuery.includes(' ') && /^[A-Z0-9]+$/.test(cleanQuery);
-
   return (
     <SafeAreaView style={styles.container}>
-      {/* 1. Barra Superior: Buscador Normal O Barra de Medición si está activa */}
+      {/* 1. Barra Superior: Buscador O Panel de Medición */}
       {!measureMode ? (
-        <View style={styles.searchContainer}>
-          <Text style={styles.appTitle}>🏛️ GeoCatastro</Text>
-          
-          <View style={styles.inputRow}>
-            <View style={styles.inputBoxContainer}>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Dirección, Calle y Nº, Ref. Catastral..."
-                placeholderTextColor="#888"
-                value={query}
-                onChangeText={handleSearchTextChange}
-                onFocus={() => {
-                  if (query.trim().length === 0 && recentSearches.length > 0) {
-                    setShowRecent(true);
-                  }
-                }}
-                onSubmitEditing={executeSearch}
-                returnKeyType="search"
-              />
-              {query.length > 0 && (
-                <TouchableOpacity style={styles.clearIconBtn} onPress={clearInputText}>
-                  <Text style={styles.clearIconText}>✕</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <TouchableOpacity style={styles.searchButton} onPress={executeSearch}>
-              <Text style={styles.searchButtonText}>Buscar</Text>
-            </TouchableOpacity>
-          </View>
-
-          {isRCInput && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.regionSelectorRow}>
-              <TouchableOpacity 
-                style={[styles.regionBtn, selectedRegion === 'ES' && styles.regionBtnActive]}
-                onPress={() => changeRegion('ES')}
-              >
-                <Text style={[styles.regionBtnText, selectedRegion === 'ES' && styles.regionBtnTextActive]}>🇪🇸 Estado</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.regionBtn, selectedRegion === 'NA' && styles.regionBtnActive]}
-                onPress={() => changeRegion('NA')}
-              >
-                <Text style={[styles.regionBtnText, selectedRegion === 'NA' && styles.regionBtnTextActive]}>🔴 Navarra</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.regionBtn, selectedRegion === 'VI' && styles.regionBtnActive]}
-                onPress={() => changeRegion('VI')}
-              >
-                <Text style={[styles.regionBtnText, selectedRegion === 'VI' && styles.regionBtnTextActive]}>🟣 Álava</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.regionBtn, selectedRegion === 'BI' && styles.regionBtnActive]}
-                onPress={() => changeRegion('BI')}
-              >
-                <Text style={[styles.regionBtnText, selectedRegion === 'BI' && styles.regionBtnTextActive]}>🔴 Bizkaia</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.regionBtn, selectedRegion === 'SS' && styles.regionBtnActive]}
-                onPress={() => changeRegion('SS')}
-              >
-                <Text style={[styles.regionBtnText, selectedRegion === 'SS' && styles.regionBtnTextActive]}>🔵 Gipuzkoa</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          )}
-
-          {loading && (
-            <View style={styles.loadingBox}>
-              <ActivityIndicator size="small" color="#0066cc" />
-              <Text style={styles.loadingText}> Consultando Sede del Catastro...</Text>
-            </View>
-          )}
-
-          {/* Lista de Búsquedas Recientes */}
-          {showRecent && recentSearches.length > 0 && (
-            <View style={styles.recentContainer}>
-              <View style={styles.recentHeaderRow}>
-                <Text style={styles.recentHeaderText}>🕒 Búsquedas Recientes</Text>
-                <TouchableOpacity onPress={clearAllRecent}>
-                  <Text style={styles.recentClearAllText}>Borrar historial</Text>
-                </TouchableOpacity>
-              </View>
-              <ScrollView style={styles.recentScroll} keyboardShouldPersistTaps="handled">
-                {recentSearches.map((item, idx) => (
-                  <View key={idx} style={styles.recentRowItem}>
-                    <TouchableOpacity
-                      style={{ flex: 1 }}
-                      onPress={() => {
-                        setQuery(item);
-                        setShowRecent(false);
-                        handleSearchTextChange(item);
-                      }}
-                    >
-                      <Text style={styles.recentItemText} numberOfLines={1}>🕒 {item}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={{ paddingLeft: 8 }}
-                      onPress={() => removeRecentSearch(item)}
-                    >
-                      <Text style={styles.recentDeleteBtn}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-
-          {/* Lista de Sugerencias de Autocompletado */}
-          {suggestions.length > 0 && (
-            <FlatList
-              data={suggestions}
-              keyExtractor={(item, idx) => item.place_id ? item.place_id.toString() : idx.toString()}
-              style={styles.suggestionsList}
-              keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => (
-                <TouchableOpacity style={styles.suggestionItem} onPress={() => onSelectSuggestion(item)}>
-                  <Text numberOfLines={2} style={item.isRC ? styles.rcSuggestionText : styles.suggestionText}>
-                    {item.display_name}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
-          )}
-        </View>
+        <SearchBar
+          query={query}
+          setQuery={setQuery}
+          onSearchTextChange={handleSearchTextChange}
+          onExecuteSearch={executeSearch}
+          onClearInput={clearInputText}
+          suggestions={suggestions}
+          onSelectSuggestion={onSelectSuggestion}
+          recentSearches={recentSearches}
+          showRecent={showRecent}
+          setShowRecent={setShowRecent}
+          onRemoveRecentSearch={removeRecentSearch}
+          onClearAllRecent={clearAllRecent}
+          loading={loading}
+          selectedRegion={selectedRegion}
+          onChangeRegion={changeRegion}
+          onOpenRusticModal={() => setRusticModalVisible(true)}
+          onOpenFavoritesModal={() => setFavModalVisible(true)}
+        />
       ) : (
-        /* Panel Contextual de Medición Activa */
-        <View style={styles.measurePanel}>
-          <View style={styles.measureTabsRow}>
-            <TouchableOpacity
-              style={[styles.measureTab, measureMode === 'distance' && styles.measureTabActive]}
-              onPress={() => startMeasureMode('distance')}
-            >
-              <Text style={[styles.measureTabText, measureMode === 'distance' && styles.measureTabTextActive]}>
-                📏 Distancia
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.measureTab, measureMode === 'area' && styles.measureTabActive]}
-              onPress={() => startMeasureMode('area')}
-            >
-              <Text style={[styles.measureTabText, measureMode === 'area' && styles.measureTabTextActive]}>
-                📐 Área y Perímetro
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.measureExitBtn} onPress={exitMeasureMode}>
-              <Text style={styles.measureExitBtnText}>✕ Salir</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.measureDisplayBox}>
-            {measureMode === 'distance' ? (
-              <View>
-                <Text style={styles.measureMainValue}>
-                  📏 {formatDistance(measureStats.distance)}
-                </Text>
-                <Text style={styles.measureSubText}>
-                  {measureStats.pointsCount === 0
-                    ? 'Toca en el mapa para añadir puntos y medir'
-                    : `${measureStats.pointsCount} vértice(s) trazado(s)`}
-                </Text>
-              </View>
-            ) : (
-              <View>
-                <Text style={styles.measureMainValue}>
-                  📐 {formatArea(measureStats.area)}
-                </Text>
-                <Text style={styles.measureSubText}>
-                  {measureStats.pointsCount < 3
-                    ? 'Toca al menos 3 puntos en el mapa para cerrar el polígono'
-                    : `Perímetro: ${formatDistance(measureStats.perimeter)} | ${measureStats.pointsCount} vértices`}
-                </Text>
-              </View>
-            )}
-
-            {measureStats.snapped && (
-              <View style={styles.snapBadge}>
-                <Text style={styles.snapBadgeText}>🧲 Vértice ajustado a esquina oficial</Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.measureActionsRow}>
-            <TouchableOpacity
-              style={[styles.measureActionBtn, measureStats.pointsCount === 0 && styles.btnDisabled]}
-              onPress={undoMeasurePoint}
-              disabled={measureStats.pointsCount === 0}
-            >
-              <Text style={styles.measureActionBtnText}>↩ Deshacer</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.measureActionBtn, snapEnabled ? styles.measureActionBtnSnapActive : styles.measureActionBtnSnapInactive]}
-              onPress={toggleSnap}
-            >
-              <Text style={[styles.measureActionBtnText, snapEnabled && { color: '#00875a', fontWeight: 'bold' }]}>
-                {snapEnabled ? '🧲 Imán: SÍ' : '🧲 Imán: NO'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.measureActionBtn, styles.measureActionBtnDanger, measureStats.pointsCount === 0 && styles.btnDisabled]}
-              onPress={clearMeasurePoints}
-              disabled={measureStats.pointsCount === 0}
-            >
-              <Text style={[styles.measureActionBtnText, { color: '#cc0000' }]}>🗑 Limpiar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <MeasurePanel
+          measureMode={measureMode}
+          startMeasureMode={startMeasureMode}
+          exitMeasureMode={exitMeasureMode}
+          measureStats={measureStats}
+          snapEnabled={snapEnabled}
+          toggleSnap={toggleSnap}
+          undoMeasurePoint={undoMeasurePoint}
+          clearMeasurePoints={clearMeasurePoints}
+          onOpenSaveModal={() => setSaveMeasureModalVisible(true)}
+          onOpenSavedModal={() => setSavedMeasuresModalVisible(true)}
+          onExportKml={handleExportKmlCurrent}
+          onImportKml={handleImportKml}
+        />
       )}
 
-      {/* 2. Mapa Interactivo Leaflet + WMS Catastro / Capas IGN */}
-      <WebView
-        ref={webViewRef}
-        originWhitelist={['*']}
-        source={{ html: leafletHTML }}
-        style={styles.map}
-        onMessage={(e) => {
-          try {
-            const data = JSON.parse(e.nativeEvent.data);
-            if (data.type === 'MAP_CLICK') {
-              fetchParcelByCoords(data.lat, data.lon);
-            } else if (data.type === 'MAP_MOVED') {
-              if (data.lat && data.lon) {
-                const detected = cadastreService.detectRegionFromCoords(data.lat, data.lon);
-                if (detected !== selectedRegion) {
-                  changeRegion(detected);
-                }
-              }
-            } else if (data.type === 'MEASURE_UPDATE') {
-              setMeasureStats({
-                distance: data.distance || 0,
-                area: data.area || 0,
-                perimeter: data.perimeter || 0,
-                pointsCount: data.pointsCount || 0,
-                snapped: !!data.snapped
-              });
-            } else if (data.type === 'MEASURE_TAP_GEOQUERY') {
-              if (snapEnabled && data.lat && data.lon) {
-                const region = cadastreService.detectRegionFromCoords(data.lat, data.lon);
-                cadastreService.fetchParcelGeometry(null, data.lat, data.lon, region)
-                  .then((vertices) => {
-                    if (vertices && vertices.length > 0) {
-                      webViewRef.current?.postMessage(JSON.stringify({
-                        type: 'REGISTER_PARCEL_VERTICES',
-                        vertices: vertices
-                      }));
-                    }
-                  })
-                  .catch(() => {});
-              }
+      {/* 2. Visor de Mapas Leaflet + WMS Catastro */}
+      <MapViewer
+        ref={mapViewerRef}
+        onMapClick={(lat, lon) => fetchParcelByCoords(lat, lon)}
+        onMapMoved={(lat, lon) => {
+          if (lat && lon) {
+            const detected = cadastreService.detectRegionFromCoords(lat, lon);
+            if (detected !== selectedRegion) {
+              changeRegion(detected);
             }
-          } catch (err) {}
+          }
         }}
-        javaScriptEnabled={true}
-        domStorageEnabled={true}
+        onMeasureUpdate={(data) => {
+          setMeasureStats({
+            distance: data.distance || 0,
+            area: data.area || 0,
+            perimeter: data.perimeter || 0,
+            pointsCount: data.pointsCount || 0,
+            snapped: !!data.snapped
+          });
+          if (data.points) {
+            setCurrentMeasurePoints(data.points);
+          }
+        }}
+        onMeasureTapGeoquery={(lat, lon) => {
+          if (snapEnabled && lat && lon) {
+            const region = cadastreService.detectRegionFromCoords(lat, lon);
+            cadastreService.fetchParcelGeometry(null, lat, lon, region)
+              .then((vertices) => {
+                if (vertices && vertices.length > 0) {
+                  mapViewerRef.current?.postMessage({
+                    type: 'REGISTER_PARCEL_VERTICES',
+                    vertices: vertices
+                  });
+                }
+              })
+              .catch(() => {});
+          }
+        }}
       />
 
-      {/* 3. Botonera Flotante Lateral Derecha (Capas, Medir, GPS) */}
+      {/* 3. Botonera Flotante Lateral Derecha */}
       <View style={[styles.mapButtonsStack, parcelDetails && { bottom: SCREEN_HEIGHT * 0.38 }]}>
         <TouchableOpacity
           style={styles.floatingToolBtn}
@@ -2011,1042 +988,181 @@ export default function App() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.floatingGpsBtn}
-          onPress={() => getUserLocation(false)}
+          style={[styles.floatingGpsBtn, isLiveTracking && styles.floatingGpsBtnActive]}
+          onPress={toggleLiveTracking}
         >
-          <Text style={styles.floatingGpsIcon}>🎯</Text>
-          <Text style={styles.floatingGpsLabel}>Ubicación</Text>
+          <Text style={styles.floatingGpsIcon}>{isLiveTracking ? '🧭' : '🎯'}</Text>
+          <Text style={[styles.floatingGpsLabel, isLiveTracking && { color: '#0066cc', fontWeight: 'bold' }]}>
+            {isLiveTracking ? 'En Vivo' : 'Ubicación'}
+          </Text>
         </TouchableOpacity>
       </View>
 
-      {/* 4. Modal / Panel de Gestión de Capas */}
-      <Modal
+      {/* 4. Modales de la Aplicación */}
+      <LayersModal
         visible={showLayersModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowLayersModal(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.layersModalCard}>
-            <View style={styles.layersModalHeader}>
-              <Text style={styles.layersModalTitle}>🥞 Capas del Mapa</Text>
-              <TouchableOpacity onPress={() => setShowLayersModal(false)} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseBtnText}>✕</Text>
-              </TouchableOpacity>
-            </View>
+        onClose={() => setShowLayersModal(false)}
+        activeBaseLayer={activeBaseLayer}
+        onSelectBaseLayer={handleSelectBaseLayer}
+        catastroVisible={catastroVisible}
+        onToggleCatastro={handleToggleCatastro}
+        catastroOpacity={catastroOpacity}
+        onSetCatastroOpacity={handleSetCatastroOpacity}
+        ignLabelsVisible={ignLabelsVisible}
+        onToggleIgnLabels={handleToggleIgnLabels}
+      />
 
-            <ScrollView style={{ maxHeight: 420 }}>
-              {/* Sección 1: Mapa Base */}
-              <Text style={styles.layersSectionTitle}>MAPA BASE</Text>
-              <View style={styles.baseLayersGrid}>
-                <TouchableOpacity
-                  style={[styles.baseLayerCard, activeBaseLayer === 'osm' && styles.baseLayerCardActive]}
-                  onPress={() => handleSelectBaseLayer('osm')}
-                >
-                  <Text style={styles.baseLayerIcon}>🗺️</Text>
-                  <Text style={[styles.baseLayerText, activeBaseLayer === 'osm' && styles.baseLayerTextActive]}>
-                    Callejero (OSM)
-                  </Text>
-                </TouchableOpacity>
+      <RusticSearchModal
+        visible={rusticModalVisible}
+        onClose={() => setRusticModalVisible(false)}
+        onSelectParcel={handleSelectRusticParcel}
+        selectedRegion={selectedRegion}
+      />
 
-                <TouchableOpacity
-                  style={[styles.baseLayerCard, activeBaseLayer === 'ign_base' && styles.baseLayerCardActive]}
-                  onPress={() => handleSelectBaseLayer('ign_base')}
-                >
-                  <Text style={styles.baseLayerIcon}>🇪🇸</Text>
-                  <Text style={[styles.baseLayerText, activeBaseLayer === 'ign_base' && styles.baseLayerTextActive]}>
-                    Topográfico (IGN)
-                  </Text>
-                </TouchableOpacity>
+      <FavoritesModal
+        visible={favModalVisible}
+        onClose={() => setFavModalVisible(false)}
+        onSelectFavorite={handleSelectFavorite}
+      />
 
-                <TouchableOpacity
-                  style={[styles.baseLayerCard, activeBaseLayer === 'ign_pnoa' && styles.baseLayerCardActive]}
-                  onPress={() => handleSelectBaseLayer('ign_pnoa')}
-                >
-                  <Text style={styles.baseLayerIcon}>🛰️</Text>
-                  <Text style={[styles.baseLayerText, activeBaseLayer === 'ign_pnoa' && styles.baseLayerTextActive]}>
-                    Ortofoto PNOA (IGN)
-                  </Text>
-                </TouchableOpacity>
+      <SaveFavoriteModal
+        visible={saveFavModalVisible}
+        onClose={() => setSaveFavModalVisible(false)}
+        parcel={favModalParcel}
+        onSave={handleSaveFavoriteParcel}
+      />
 
-                <TouchableOpacity
-                  style={[styles.baseLayerCard, activeBaseLayer === 'esri_sat' && styles.baseLayerCardActive]}
-                  onPress={() => handleSelectBaseLayer('esri_sat')}
-                >
-                  <Text style={styles.baseLayerIcon}>🌍</Text>
-                  <Text style={[styles.baseLayerText, activeBaseLayer === 'esri_sat' && styles.baseLayerTextActive]}>
-                    Satélite (Esri)
-                  </Text>
-                </TouchableOpacity>
-              </View>
+      <SaveMeasurementModal
+        visible={saveMeasureModalVisible}
+        onClose={() => setSaveMeasureModalVisible(false)}
+        measurementData={{
+          mode: measureMode,
+          points: currentMeasurePoints,
+          stats: measureStats
+        }}
+        onSave={handleSaveActiveMeasurement}
+      />
 
-              {/* Sección 2: Capas Superpuestas */}
-              <Text style={[styles.layersSectionTitle, { marginTop: 16 }]}>CAPAS SUPERPUESTAS</Text>
-              
-              {/* Capa Catastro Unificada */}
-              <View style={styles.overlayItemBox}>
-                <View style={styles.overlayItemRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.overlayItemTitle}>🏛️ Catastro</Text>
-                    <Text style={styles.overlayItemSub}>Lindes y parcelas oficiales</Text>
-                  </View>
-                  <Switch
-                    value={catastroVisible}
-                    onValueChange={handleToggleCatastro}
-                    trackColor={{ false: '#ccc', true: '#99c2ff' }}
-                    thumbColor={catastroVisible ? '#0066cc' : '#f4f4f4'}
-                  />
-                </View>
+      <SavedMeasurementsModal
+        visible={savedMeasuresModalVisible}
+        onClose={() => setSavedMeasuresModalVisible(false)}
+        onLoadMeasurement={handleLoadSavedMeasurement}
+      />
 
-                {catastroVisible && (
-                  <View style={styles.opacityControlsContainer}>
-                    <Text style={styles.opacityLabel}>Opacidad: {Math.round(catastroOpacity * 100)}%</Text>
-                    <View style={styles.opacityPillsRow}>
-                      {[0.25, 0.50, 0.75, 1.0].map((val) => (
-                        <TouchableOpacity
-                          key={val}
-                          style={[styles.opacityPill, catastroOpacity === val && styles.opacityPillActive]}
-                          onPress={() => handleSetCatastroOpacity(val)}
-                        >
-                          <Text style={[styles.opacityPillText, catastroOpacity === val && styles.opacityPillTextActive]}>
-                            {Math.round(val * 100)}%
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-                )}
-              </View>
-
-              {/* Capa Rotulación IGN */}
-              <View style={[styles.overlayItemBox, { marginTop: 10 }]}>
-                <View style={styles.overlayItemRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.overlayItemTitle}>🏷️ Rotulación de Calles (IGN)</Text>
-                    <Text style={styles.overlayItemSub}>Toponimia y nombres sobre ortofotos</Text>
-                  </View>
-                  <Switch
-                    value={ignLabelsVisible}
-                    onValueChange={handleToggleIgnLabels}
-                    trackColor={{ false: '#ccc', true: '#99c2ff' }}
-                    thumbColor={ignLabelsVisible ? '#0066cc' : '#f4f4f4'}
-                  />
-                </View>
-              </View>
-            </ScrollView>
-
-            <TouchableOpacity style={styles.modalAcceptBtn} onPress={() => setShowLayersModal(false)}>
-              <Text style={styles.modalAcceptBtnText}>Aceptar</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Modal para Guardar DNI / NIF para consultas de Bizkaia */}
-      <Modal
+      <DniModal
         visible={dniModalVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setDniModalVisible(false)}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={[styles.layersModalCard, { padding: 20 }]}>
-            <View style={styles.layersModalHeader}>
-              <Text style={styles.layersModalTitle}>🆔 NIF / DNI Solicitante</Text>
-              <TouchableOpacity onPress={() => setDniModalVisible(false)} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseBtnText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-            <Text style={{ fontSize: 13, color: '#555', marginVertical: 10, lineHeight: 18 }}>
-              La Sede Oficial de Bizkaia requiere el NIF del solicitante para generar y descargar fichas catastrales oficiales.
-            </Text>
-            <TextInput
-              style={{
-                borderWidth: 1.5,
-                borderColor: '#0066cc',
-                borderRadius: 8,
-                padding: 12,
-                fontSize: 16,
-                fontWeight: 'bold',
-                letterSpacing: 2,
-                textAlign: 'center',
-                backgroundColor: '#f8fafd',
-                color: '#111',
-                marginVertical: 10
-              }}
-              placeholder="Ej: 12345678Z"
-              placeholderTextColor="#999"
-              value={dniInput}
-              onChangeText={setDniInput}
-              autoCapitalize="characters"
-              maxLength={9}
-            />
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-              <TouchableOpacity
-                style={[styles.modalAcceptBtn, { flex: 1, backgroundColor: '#888', marginTop: 0 }]}
-                onPress={() => setDniModalVisible(false)}
-              >
-                <Text style={styles.modalAcceptBtnText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalAcceptBtn, { flex: 2, marginTop: 0 }]}
-                onPress={() => saveUserDni(dniInput)}
-              >
-                <Text style={styles.modalAcceptBtnText}>Guardar y Abrir</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setDniModalVisible(false)}
+        dniInput={dniInput}
+        setDniInput={setDniInput}
+        onSaveDni={saveUserDni}
+      />
 
-      {/* Modal Visor de Ficha Catastral con Autofill Inteligente */}
-      <Modal
+      <FichaWebViewModal
         visible={fichaWebViewVisible}
-        animationType="slide"
-        onRequestClose={() => setFichaWebViewVisible(false)}
-      >
-        <SafeAreaView style={{
-          flex: 1,
-          backgroundColor: '#cc0000',
-          paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 0
-        }}>
-          <StatusBar barStyle="light-content" backgroundColor="#cc0000" translucent={true} />
-          <View style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingHorizontal: 16,
-            paddingVertical: 12,
-            backgroundColor: '#cc0000'
-          }}>
-            <Text style={{ color: '#fff', fontSize: 15, fontWeight: 'bold', flex: 1 }} numberOfLines={1}>
-              {fichaTitle}
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              {(fichaPdfDataUrl || fichaPdfUrl) && (
-                <TouchableOpacity
-                  onPress={handleSharePdf}
-                  style={{
-                    backgroundColor: '#fff',
-                    borderRadius: 16,
-                    paddingHorizontal: 10,
-                    paddingVertical: 5
-                  }}
-                >
-                  <Text style={{ color: '#cc0000', fontWeight: 'bold', fontSize: 12 }}>📤 Guardar / Compartir</Text>
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity
-                onPress={() => {
-                  setFichaWebViewVisible(false);
-                  setFichaPdfUrl(null);
-                  setFichaPdfDataUrl(null);
-                }}
-                style={{
-                  backgroundColor: 'rgba(255,255,255,0.25)',
-                  borderRadius: 16,
-                  paddingHorizontal: 12,
-                  paddingVertical: 6
-                }}
-              >
-                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>Cerrar ✕</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          <View style={{ flex: 1, backgroundColor: '#fff' }}>
-            {fichaWebViewVisible && (
-              <WebView
-                ref={fichaWebViewRef}
-                source={{ uri: fichaWebViewUrl }}
-                injectedJavaScript={fichaInjectedJs}
-                onMessage={handleFichaMessage}
-                javaScriptEnabled={true}
-                domStorageEnabled={true}
-                allowFileAccess={true}
-                allowFileAccessFromFileURLs={true}
-                allowUniversalAccessFromFileURLs={true}
-                setSupportMultipleWindows={false}
-                javaScriptCanOpenWindowsAutomatically={true}
-                startInLoadingState={true}
-                scalesPageToFit={true}
-                originWhitelist={['*']}
-                mixedContentMode="always"
-                onShouldStartLoadWithRequest={(request) => {
-                  if (
-                    request.url.endsWith('.pdf') ||
-                    request.url.includes('blob:') ||
-                    request.url.startsWith('intent:') ||
-                    request.url.startsWith('market:')
-                  ) {
-                    Linking.openURL(request.url).catch(() => {});
-                    return false;
-                  }
-                  return true;
-                }}
-                renderLoading={() => (
-                  <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-                    <ActivityIndicator size="large" color="#cc0000" />
-                    <Text style={{ marginTop: 12, color: '#666', fontWeight: '600' }}>Cargando y autorrellenando Ficha...</Text>
-                  </View>
-                )}
-              />
-            )}
-          </View>
-        </SafeAreaView>
-      </Modal>
+        onClose={() => {
+          setFichaWebViewVisible(false);
+          setFichaPdfUrl(null);
+          setFichaPdfDataUrl(null);
+        }}
+        title={fichaTitle}
+        url={fichaWebViewUrl}
+        injectedJs={fichaInjectedJs}
+        pdfUrl={fichaPdfUrl}
+        pdfDataUrl={fichaPdfDataUrl}
+        onSharePdf={handleSharePdf}
+        onMessage={handleFichaMessage}
+      />
 
       {/* 5. Tarjeta Deslizante de Información Catastral */}
-      {parcelDetails && !measureMode && (
-        <Animated.View 
-          style={[
-            styles.detailsCard, 
-            { transform: [{ translateY: cardAnimY }] }
-          ]}
-        >
-          <View {...panResponder.panHandlers} style={styles.dragHandleContainer}>
-            <View style={styles.dragHandleBar} />
-          </View>
-
-          <View style={styles.cardHeader}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardAddress} numberOfLines={2}>{parcelDetails.address}</Text>
-
-              {!parcelDetails.noExactBuilding && (
-                <>
-                  <Text style={styles.cardRefLabel}>Ref. Catastral Base (14 car.):</Text>
-                  <TouchableOpacity onPress={() => copyToClipboard(parcelDetails.refCat)}>
-                    <Text style={styles.cardRefValue}>{parcelDetails.refCat} 📋</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-
-            <TouchableOpacity 
-              style={styles.closeCardBtn} 
-              onPress={() => {
-                setParcelDetails(null);
-                resetCardPosition();
-              }}
-            >
-              <Text style={styles.closeCardBtnText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-
-          {!parcelDetails.noExactBuilding ? (
-            <>
-              <View style={styles.badgeRow}>
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>🏢 {parcelDetails.count} Inmueble(s)</Text>
-                </View>
-              </View>
-
-              <View style={styles.actionButtonsRow}>
-                <TouchableOpacity
-                  style={styles.btnPrimary}
-                  onPress={() => {
-                    const isSingle = parcelDetails.count === 1;
-                    const refToOpen = isSingle 
-                      ? (parcelDetails.ref20 || parcelDetails.refCat) 
-                      : String(parcelDetails.refCat || '').trim().substring(0, 14);
-
-                    openOfficialFicha({
-                      refCat: refToOpen,
-                      ref20: isSingle ? refToOpen : '',
-                      del: parcelDetails.del,
-                      mun: parcelDetails.mun,
-                      polCode: parcelDetails.polCode,
-                      parCode: parcelDetails.parCode,
-                      subareaCode: ''
-                    });
-                  }}
-                >
-                  <Text style={styles.btnPrimaryText}>
-                    {parcelDetails.count === 1 
-                      ? '📄 Abrir Ficha del Inmueble' 
-                      : (selectedRegion === 'NA' || selectedRegion === 'VI' || selectedRegion === 'BI' || selectedRegion === 'SS' ? '📄 Abrir Ficha de Parcela' : '📄 Abrir Mapa de Parcela')
-                    }
-                  </Text>
-                </TouchableOpacity>
-
-                {subparcels.length > 1 && (
-                  <TouchableOpacity
-                    style={styles.btnSecondary}
-                    onPress={() => {
-                      const nextState = !showSubparcels;
-                      setShowSubparcels(nextState);
-                      if (nextState) expandCard();
-                      else resetCardPosition();
-                    }}
-                  >
-                    <Text style={styles.btnSecondaryText}>
-                      {showSubparcels ? '▲ Ocultar Inmuebles' : '▼ Ver Inmuebles'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* Lista Desplegable de Subparcelas / Pisos de 20 dígitos */}
-              {showSubparcels && subparcels.length > 1 && (
-                <View style={styles.subparcelsContainer}>
-                  <Text style={styles.subparcelsHeader}>Selecciona un inmueble para abrir su Ficha:</Text>
-                  
-                  <TextInput
-                    style={styles.subparcelFilterInput}
-                    placeholder="Filtrar por portal, calle, planta..."
-                    placeholderTextColor="#888"
-                    value={subparcelFilter}
-                    onChangeText={setSubparcelFilter}
-                  />
-
-                  <ScrollView style={styles.subparcelsScroll} nestedScrollEnabled={true}>
-                    {subparcels.filter(sub => {
-                      if (!subparcelFilter) return true;
-                      const term = subparcelFilter.toLowerCase();
-                      const addr = (sub.address || '').toLowerCase();
-                      const int = (sub.interior || '').toLowerCase();
-                      return addr.includes(term) || int.includes(term);
-                    }).map((sub, idx) => {
-                      const isSelected = selectedSubparcel?.id === sub.id;
-                      return (
-                        <View
-                          key={sub.id + idx}
-                          style={[styles.subparcelItem, isSelected && styles.subparcelItemSelected]}
-                        >
-                          <TouchableOpacity
-                            style={{ flex: 1 }}
-                            onPress={() => setSelectedSubparcel(sub)}
-                          >
-                            <Text style={styles.subparcelTitle}>{sub.interior}</Text>
-                            <Text style={styles.subparcelRC}>{sub.ref20}</Text>
-                          </TouchableOpacity>
-
-                          <View style={{ flexDirection: 'row', gap: 6 }}>
-                            <TouchableOpacity
-                              style={styles.btnMiniFicha}
-                              onPress={() => openOfficialFicha(sub)}
-                            >
-                              <Text style={styles.btnMiniFichaText}>Ficha 🌐</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                              style={styles.copyBtnMini}
-                              onPress={() => copyToClipboard(sub.ref20)}
-                            >
-                              <Text style={styles.copyBtnMiniText}>Copiar</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              )}
-            </>
-          ) : (
-            <View style={{ marginTop: 10 }}>
-              <Text style={styles.hintText}>💡 ¿No se detecta edificio o deseas consultar en otro Catastro?</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
-                {selectedRegion !== 'ES' && (
-                  <TouchableOpacity
-                    style={[styles.btnSecondary, { paddingHorizontal: 12, marginRight: 6 }]}
-                    onPress={() => {
-                      changeRegion('ES');
-                      if (parcelDetails.lat && parcelDetails.lon) {
-                        fetchParcelByCoords(parcelDetails.lat, parcelDetails.lon, 'ES');
-                      }
-                    }}
-                  >
-                    <Text style={styles.btnSecondaryText}>🇪🇸 Estado</Text>
-                  </TouchableOpacity>
-                )}
-                {selectedRegion !== 'NA' && (
-                  <TouchableOpacity
-                    style={[styles.btnSecondary, { paddingHorizontal: 12, marginRight: 6 }]}
-                    onPress={() => {
-                      changeRegion('NA');
-                      if (parcelDetails.lat && parcelDetails.lon) {
-                        fetchParcelByCoords(parcelDetails.lat, parcelDetails.lon, 'NA');
-                      }
-                    }}
-                  >
-                    <Text style={styles.btnSecondaryText}>🔴 Navarra</Text>
-                  </TouchableOpacity>
-                )}
-                {selectedRegion !== 'VI' && (
-                  <TouchableOpacity
-                    style={[styles.btnSecondary, { paddingHorizontal: 12, marginRight: 6 }]}
-                    onPress={() => {
-                      changeRegion('VI');
-                      if (parcelDetails.lat && parcelDetails.lon) {
-                        fetchParcelByCoords(parcelDetails.lat, parcelDetails.lon, 'VI');
-                      }
-                    }}
-                  >
-                    <Text style={styles.btnSecondaryText}>🟣 Álava</Text>
-                  </TouchableOpacity>
-                )}
-                {selectedRegion !== 'BI' && (
-                  <TouchableOpacity
-                    style={[styles.btnSecondary, { paddingHorizontal: 12, marginRight: 6 }]}
-                    onPress={() => {
-                      changeRegion('BI');
-                      if (parcelDetails.lat && parcelDetails.lon) {
-                        fetchParcelByCoords(parcelDetails.lat, parcelDetails.lon, 'BI');
-                      }
-                    }}
-                  >
-                    <Text style={styles.btnSecondaryText}>🔴 Bizkaia</Text>
-                  </TouchableOpacity>
-                )}
-                {selectedRegion !== 'SS' && (
-                  <TouchableOpacity
-                    style={[styles.btnSecondary, { paddingHorizontal: 12, marginRight: 6 }]}
-                    onPress={() => {
-                      changeRegion('SS');
-                      if (parcelDetails.lat && parcelDetails.lon) {
-                        fetchParcelByCoords(parcelDetails.lat, parcelDetails.lon, 'SS');
-                      }
-                    }}
-                  >
-                    <Text style={styles.btnSecondaryText}>🔵 Gipuzkoa</Text>
-                  </TouchableOpacity>
-                )}
-              </ScrollView>
-            </View>
-          )}
-        </Animated.View>
-      )}
+      <ParcelDetailsSheet
+        parcelDetails={parcelDetails}
+        subparcels={subparcels}
+        showSubparcels={showSubparcels}
+        setShowSubparcels={setShowSubparcels}
+        selectedSubparcel={selectedSubparcel}
+        setSelectedSubparcel={setSelectedSubparcel}
+        subparcelFilter={subparcelFilter}
+        setSubparcelFilter={setSubparcelFilter}
+        selectedRegion={selectedRegion}
+        onChangeRegion={changeRegion}
+        cardAnimY={cardAnimY}
+        panResponder={panResponder}
+        onClose={() => {
+          setParcelDetails(null);
+          resetCardPosition();
+        }}
+        onOpenOfficialFicha={openOfficialFicha}
+        onOpenSaveFavoriteModal={handleOpenSaveFavoriteModal}
+        onCopyToClipboard={copyToClipboard}
+        onExpandCard={expandCard}
+        onResetCardPosition={resetCardPosition}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
-  searchContainer: {
-    position: 'absolute',
-    top: 45,
-    left: 14,
-    right: 14,
-    backgroundColor: 'white',
-    padding: 12,
-    borderRadius: 12,
-    zIndex: 100,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 5,
-  },
-  appTitle: { fontWeight: 'bold', fontSize: 15, marginBottom: 8, color: '#111' },
-  inputRow: { flexDirection: 'row', alignItems: 'center' },
-  inputBoxContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', position: 'relative' },
-  searchInput: {
-    flex: 1,
-    height: 42,
-    borderColor: '#ccc',
-    borderWidth: 1,
-    paddingLeft: 12,
-    paddingRight: 34,
-    borderRadius: 8,
-    backgroundColor: '#fafafa',
-    fontSize: 13,
-    color: '#000'
-  },
-  clearIconBtn: { position: 'absolute', right: 8, padding: 6 },
-  clearIconText: { fontSize: 14, color: '#888', fontWeight: 'bold' },
-  searchButton: {
-    backgroundColor: '#0066cc',
-    paddingHorizontal: 14,
-    height: 42,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 8,
-    marginLeft: 8,
-  },
-  searchButtonText: { color: 'white', fontWeight: 'bold', fontSize: 13 },
-  loadingBox: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
-  loadingText: { color: '#0066cc', fontSize: 12, fontWeight: '500' },
-  regionSelectorRow: { flexDirection: 'row', marginTop: 10, backgroundColor: '#f0f0f0', borderRadius: 8, padding: 2 },
-  regionBtn: { flex: 1, paddingVertical: 6, alignItems: 'center', borderRadius: 6 },
-  regionBtnActive: { backgroundColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 1, elevation: 2 },
-  regionBtnText: { fontSize: 12, color: '#666', fontWeight: '600' },
-  regionBtnTextActive: { color: '#0066cc', fontWeight: 'bold' },
-
-  // Estilos del Panel de Medición
-  measurePanel: {
-    position: 'absolute',
-    top: 45,
-    left: 14,
-    right: 14,
-    backgroundColor: 'white',
-    padding: 12,
-    borderRadius: 14,
-    zIndex: 100,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 5,
-  },
-  measureTabsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    gap: 6
-  },
-  measureTab: {
-    flex: 1,
-    paddingVertical: 7,
-    borderRadius: 8,
-    backgroundColor: '#f0f0f0',
-    alignItems: 'center'
-  },
-  measureTabActive: {
-    backgroundColor: '#e6f2ff',
-    borderWidth: 1,
-    borderColor: '#0066cc'
-  },
-  measureTabText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#666'
-  },
-  measureTabTextActive: {
-    color: '#0066cc',
-    fontWeight: 'bold'
-  },
-  measureExitBtn: {
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    backgroundColor: '#fee',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#fcc'
-  },
-  measureExitBtnText: {
-    color: '#cc0000',
-    fontWeight: 'bold',
-    fontSize: 12
-  },
-  measureDisplayBox: {
-    backgroundColor: '#f9fbfd',
-    borderWidth: 1,
-    borderColor: '#e1ecf7',
-    borderRadius: 8,
-    padding: 10,
-    alignItems: 'center',
-    marginVertical: 4
-  },
-  measureMainValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#0066cc',
-    textAlign: 'center'
-  },
-  measureSubText: {
-    fontSize: 11,
-    color: '#666',
-    marginTop: 3,
-    textAlign: 'center'
-  },
-  measureActionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
-    marginTop: 6
-  },
-  measureActionBtn: {
-    flex: 1,
-    backgroundColor: '#f0f4f8',
-    paddingVertical: 7,
-    borderRadius: 6,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#d5e0ea'
-  },
-  measureActionBtnDanger: {
-    backgroundColor: '#fff5f5',
-    borderColor: '#f0d0d0'
-  },
-  measureActionBtnSnapActive: {
-    backgroundColor: '#e6f7ef',
-    borderColor: '#10b981',
-    borderWidth: 1.5
-  },
-  measureActionBtnSnapInactive: {
-    backgroundColor: '#f8f8f8',
-    borderColor: '#ddd'
-  },
-  snapBadge: {
-    marginTop: 6,
-    backgroundColor: '#ecfdf5',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#a7f3d0'
-  },
-  snapBadgeText: {
-    fontSize: 10.5,
-    color: '#047857',
-    fontWeight: 'bold'
-  },
-  measureActionBtnText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#333'
-  },
-  btnDisabled: {
-    opacity: 0.4
-  },
-
-  // Botonera Flotante Lateral Derecha
   mapButtonsStack: {
     position: 'absolute',
     right: 14,
     bottom: 30,
-    zIndex: 95,
+    zIndex: 90,
     gap: 10,
-    alignItems: 'center'
+    alignItems: 'center',
   },
   floatingToolBtn: {
     backgroundColor: 'white',
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 6,
+    elevation: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
   },
   floatingToolBtnActive: {
     backgroundColor: '#e6f2ff',
-    borderWidth: 2,
-    borderColor: '#0066cc'
+    borderWidth: 1.5,
+    borderColor: '#0066cc',
   },
   floatingToolIcon: {
-    fontSize: 18
+    fontSize: 18,
   },
   floatingToolLabel: {
     fontSize: 9,
     fontWeight: 'bold',
     color: '#333',
-    marginTop: 1
+    marginTop: -2,
   },
   floatingGpsBtn: {
-    backgroundColor: '#0066cc',
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    backgroundColor: 'white',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    shadowRadius: 4,
+  },
+  floatingGpsBtnActive: {
+    backgroundColor: '#e6f2ff',
+    borderWidth: 2,
+    borderColor: '#0066cc',
   },
   floatingGpsIcon: {
-    fontSize: 18,
-    color: 'white'
+    fontSize: 20,
   },
   floatingGpsLabel: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: 'bold',
-    color: 'white',
-    marginTop: 1
-  },
-
-  // Estilos del Modal de Capas
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16
-  },
-  layersModalCard: {
-    width: '100%',
-    maxWidth: 380,
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 16,
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-  },
-  layersModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee'
-  },
-  layersModalTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#111'
-  },
-  modalCloseBtn: {
-    padding: 4
-  },
-  modalCloseBtnText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#888'
-  },
-  layersSectionTitle: {
-    fontSize: 11,
-    fontWeight: 'bold',
-    color: '#666',
-    marginBottom: 8,
-    letterSpacing: 0.5
-  },
-  baseLayersGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8
-  },
-  baseLayerCard: {
-    width: '48%',
-    backgroundColor: '#f8f9fa',
-    borderWidth: 1.5,
-    borderColor: '#e5e7eb',
-    borderRadius: 10,
-    padding: 10,
-    alignItems: 'center'
-  },
-  baseLayerCardActive: {
-    backgroundColor: '#e6f2ff',
-    borderColor: '#0066cc'
-  },
-  baseLayerIcon: {
-    fontSize: 22,
-    marginBottom: 4
-  },
-  baseLayerText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#444',
-    textAlign: 'center'
-  },
-  baseLayerTextActive: {
     color: '#0066cc',
-    fontWeight: 'bold'
+    marginTop: -2,
   },
-  overlayItemBox: {
-    backgroundColor: '#f8f9fa',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 10,
-    padding: 12
-  },
-  overlayItemRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center'
-  },
-  overlayItemTitle: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#222'
-  },
-  overlayItemSub: {
-    fontSize: 11,
-    color: '#777',
-    marginTop: 2
-  },
-  opacityControlsContainer: {
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#eee'
-  },
-  opacityLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#555',
-    marginBottom: 6
-  },
-  opacityPillsRow: {
-    flexDirection: 'row',
-    gap: 6
-  },
-  opacityPill: {
-    flex: 1,
-    paddingVertical: 5,
-    backgroundColor: '#eef2f6',
-    borderRadius: 6,
-    alignItems: 'center'
-  },
-  opacityPillActive: {
-    backgroundColor: '#0066cc'
-  },
-  opacityPillText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#555'
-  },
-  opacityPillTextActive: {
-    color: 'white',
-    fontWeight: 'bold'
-  },
-  modalAcceptBtn: {
-    backgroundColor: '#0066cc',
-    borderRadius: 8,
-    paddingVertical: 10,
-    alignItems: 'center',
-    marginTop: 14
-  },
-  modalAcceptBtnText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 13
-  },
-
-  // Búsquedas recientes
-  recentContainer: {
-    marginTop: 8,
-    backgroundColor: '#fafafa',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-    padding: 8,
-  },
-  recentHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  recentHeaderText: { fontSize: 11, fontWeight: 'bold', color: '#555' },
-  recentClearAllText: { fontSize: 11, color: '#cc0000', fontWeight: '600' },
-  recentScroll: { maxHeight: 160 },
-  recentRowItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee'
-  },
-  recentItemText: { fontSize: 12, color: '#333' },
-  recentDeleteBtn: { fontSize: 13, color: '#999', paddingHorizontal: 4, fontWeight: 'bold' },
-
-  dragHandleContainer: {
-    width: '100%',
-    alignItems: 'center',
-    paddingVertical: 6,
-    marginTop: -8,
-    marginBottom: 4,
-  },
-  dragHandleBar: {
-    width: 38,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#ccc',
-  },
-
-  subparcelsContainer: {
-    maxHeight: SCREEN_HEIGHT * 0.45,
-    marginTop: 10,
-    backgroundColor: '#f8f8f8',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#eee',
-    padding: 8
-  },
-  subparcelsScroll: { maxHeight: SCREEN_HEIGHT * 0.35 },
-  subparcelFilterInput: {
-    backgroundColor: 'white',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 6,
-    padding: 8,
-    fontSize: 13,
-    marginBottom: 8,
-    color: '#333'
-  },
-
-  suggestionsList: {
-    maxHeight: 210,
-    marginTop: 8,
-    backgroundColor: 'white',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-  },
-  suggestionItem: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  suggestionText: { fontSize: 13, color: '#333' },
-  rcSuggestionText: { fontSize: 13, color: '#0066cc', fontWeight: 'bold' },
-  map: { flex: 1, zIndex: 1 },
-  detailsCard: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: SCREEN_HEIGHT * 0.75,
-    backgroundColor: 'white',
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    padding: 15,
-    zIndex: 100,
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-  },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  cardAddress: { fontWeight: 'bold', fontSize: 14, color: '#222' },
-  cardRefLabel: { fontSize: 11, color: '#666', marginTop: 4 },
-  cardRefValue: { fontSize: 16, fontWeight: 'bold', color: '#0066cc', marginTop: 2 },
-  closeCardBtn: { padding: 4, paddingLeft: 10 },
-  closeCardBtnText: { fontSize: 18, color: '#888', fontWeight: 'bold' },
-  badgeRow: { flexDirection: 'row', marginVertical: 8 },
-  badge: { backgroundColor: '#e6f2ff', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
-  badgeText: { color: '#0066cc', fontSize: 12, fontWeight: '600' },
-  hintText: { fontSize: 12, color: '#666', marginTop: 8, fontStyle: 'italic' },
-  actionButtonsRow: { flexDirection: 'column', gap: 6, marginTop: 4 },
-  btnPrimary: {
-    backgroundColor: '#0066cc',
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  btnPrimaryText: { color: 'white', fontWeight: 'bold', fontSize: 13 },
-  btnSecondary: {
-    backgroundColor: '#f0f4f8',
-    paddingVertical: 9,
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#d0e0f0'
-  },
-  btnSecondaryText: { color: '#0055aa', fontWeight: '600', fontSize: 12 },
-  subparcelsHeader: { fontWeight: 'bold', fontSize: 12, color: '#444', marginBottom: 6 },
-  subparcelItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    borderRadius: 6
-  },
-  subparcelItemSelected: { backgroundColor: '#e6f2ff' },
-  subparcelTitle: { fontSize: 12, color: '#222', fontWeight: '500' },
-  subparcelRC: { fontSize: 11, color: '#0066cc', fontFamily: 'monospace' },
-  btnMiniFicha: { backgroundColor: '#0066cc', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
-  btnMiniFichaText: { fontSize: 10, color: 'white', fontWeight: 'bold' },
-  copyBtnMini: { backgroundColor: '#eef', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
-  copyBtnMiniText: { fontSize: 10, color: '#0066cc', fontWeight: 'bold' },
 });
-

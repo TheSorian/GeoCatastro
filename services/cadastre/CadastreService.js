@@ -115,6 +115,30 @@ class CadastreService {
     return 'ES';
   }
 
+  async getProvincias(region = 'ES') {
+    const provider = this.getProvider(region);
+    if (typeof provider.getProvincias === 'function') {
+      return provider.getProvincias();
+    }
+    return this.providers['ES'].getProvincias();
+  }
+
+  async getMunicipios(provincia, region = 'ES') {
+    const provider = this.getProvider(region);
+    if (typeof provider.getMunicipios === 'function') {
+      return provider.getMunicipios(provincia);
+    }
+    return this.providers['ES'].getMunicipios(provincia);
+  }
+
+  async fetchParcelByRustic(provincia, municipio, poligono, parcela, region = 'ES') {
+    const provider = this.getProvider(region);
+    if (typeof provider.fetchParcelByRustic === 'function') {
+      return provider.fetchParcelByRustic(provincia, municipio, poligono, parcela);
+    }
+    return this.providers['ES'].fetchParcelByRustic(provincia, municipio, poligono, parcela);
+  }
+
   getWMSUrl(region = 'ES') {
     return this.getProvider(region).getWMSUrl();
   }
@@ -130,3 +154,4 @@ class CadastreService {
 }
 
 export const cadastreService = new CadastreService();
+

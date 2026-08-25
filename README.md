@@ -14,12 +14,19 @@
   - Mapas base: Satélite (IGN PNOA, Esri), Topográfico y Callejero.
   - Capa catastral interactiva (Estatal, Navarra, Bizkaia, Álava y Gipuzkoa).
   - Zoom ultra-detallado sin cortes.
-* 📏 **Herramientas de Medición:**
+  - **🧭 Orientación con Brújula y Punto Azul:** Seguimiento GPS en tiempo real con halo pulsante y cono direccional de rumbo dinámico estilo Google Maps.
+* 📏 **Herramientas de Medición y KML:**
   - Cálculo en tiempo real de distancias, áreas y perímetros.
   - Ajuste magnético inteligente (*Snapping*) a los vértices oficiales de las parcelas.
-* 🔎 **Buscador Multi-Criterio:**
+  - **💾 Guardado de Mediciones:** Historial persistente para guardar y recargar trazados sobre el mapa.
+  - **📤 Exportación e 📥 Importación KML:** Compatibilidad total con Google Earth, QGIS y visores GIS.
+* ⭐ **Gestor de Favoritos y Fincas Guardadas:**
+  - Guarda tus parcelas con nombre personalizado y notas privadas.
+  - Buscador de favoritos y salto directo a la parcela en el mapa.
+* 🔎 **Buscador Multi-Criterio y Rústico:**
+  - **🌾 Búsqueda Rústica:** Localización directa por Provincia, Municipio, Polígono y Parcela.
   - Búsqueda por dirección, calle, número, o nombre de pueblo/pedanía.
-  - Búsqueda directa por Referencia Catastral.
+  - Búsqueda directa por Referencia Catastral (14 y 20 caracteres).
   - Búsqueda por coordenadas GPS.
 * 📄 **Fichas e Inmuebles:**
   - Listado de subparcelas y división horizontal (pisos, locales, trasteros).

@@ -256,6 +256,101 @@ export class StateProvider {
   }
 
   /**
+   * Obtiene lista de provincias desde la Sede del Catastro
+   */
+  async getProvincias() {
+    try {
+      const url = 'https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/ObtenerProvincias';
+      const response = await fetch(url);
+      const xmlData = await response.text();
+      const parser = new XMLParser({ parseTagValue: false });
+      const jsonObj = parser.parse(xmlData);
+      const provs = jsonObj?.consulta_provinciero?.provinciero?.prov;
+      if (!provs) return [];
+      const list = Array.isArray(provs) ? provs : [provs];
+      return list.map(p => ({
+        code: p.cpine || '',
+        name: p.np || ''
+      })).filter(p => p.name);
+    } catch (e) {
+      console.warn('Error obteniendo provincias:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Obtiene lista de municipios de una provincia
+   */
+  async getMunicipios(provincia) {
+    try {
+      const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/ObtenerMunicipios?Provincia=${encodeURIComponent(provincia)}&Municipio=`;
+      const response = await fetch(url);
+      const xmlData = await response.text();
+      const parser = new XMLParser({ parseTagValue: false });
+      const jsonObj = parser.parse(xmlData);
+      const munis = jsonObj?.consulta_municipiero?.municipiero?.muni;
+      if (!munis) return [];
+      const list = Array.isArray(munis) ? munis : [munis];
+      return list.map(m => ({
+        code: m.locat?.cmc || m.loine?.cm || '',
+        name: m.nm || ''
+      })).filter(m => m.name);
+    } catch (e) {
+      console.warn('Error obteniendo municipios:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Consulta datos no protegidos por Polígono y Parcela (Consulta_DNPPP)
+   */
+  async fetchParcelByRustic(provincia, municipio, poligono, parcela) {
+    try {
+      const pPol = String(poligono).trim();
+      const pPar = String(parcela).trim();
+      const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/Consulta_DNPPP?Provincia=${encodeURIComponent(provincia)}&Municipio=${encodeURIComponent(municipio)}&Poligono=${pPol}&Parcela=${pPar}`;
+      const response = await fetch(url);
+      const xmlData = await response.text();
+      const parser = new XMLParser({ parseTagValue: false });
+      const jsonObj = parser.parse(xmlData);
+
+      let fullRc = '';
+      const dnp = jsonObj?.consulta_dnp;
+
+      // 1. Caso lrcdnp
+      if (dnp?.lrcdnp?.rcdnp) {
+        const item = Array.isArray(dnp.lrcdnp.rcdnp) ? dnp.lrcdnp.rcdnp[0] : dnp.lrcdnp.rcdnp;
+        const rcObj = item?.rc;
+        if (rcObj) {
+          fullRc = `${rcObj.pc1}${rcObj.pc2}${rcObj.car || ''}${rcObj.cc1 || ''}${rcObj.cc2 || ''}`;
+        }
+      }
+      // 2. Caso bico
+      else if (dnp?.bico?.bi?.idbi?.rc) {
+        const rcObj = dnp.bico.bi.idbi.rc;
+        fullRc = `${rcObj.pc1}${rcObj.pc2}${rcObj.car || ''}${rcObj.cc1 || ''}${rcObj.cc2 || ''}`;
+      }
+
+      if (fullRc) {
+        // Obtener coordenadas a partir de la RC
+        const coordsRes = await this.getCoordsFromRC(fullRc);
+        if (coordsRes.found) {
+          return {
+            found: true,
+            ref: fullRc,
+            lat: coordsRes.lat,
+            lon: coordsRes.lon,
+            address: `Polígono ${pPol}, Parcela ${pPar}, ${municipio} (${provincia})`
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Error en fetchParcelByRustic StateProvider:', e);
+    }
+    return { found: false };
+  }
+
+  /**
    * Obtiene la URL del WMS para esta región
    */
   getWMSUrl() {
@@ -269,4 +364,5 @@ export class StateProvider {
     return 'catastro';
   }
 }
+
 
