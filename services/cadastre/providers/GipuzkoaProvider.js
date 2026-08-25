@@ -203,103 +203,185 @@ export class GipuzkoaProvider {
       let subparcels = [];
       let mainAddress = parCode ? `Parcela ${parCode} (${cleanRef})` : `Referencia ${cleanRef} (Gipuzkoa)`;
 
-      // Consulta y desglose de fincas / inmuebles mediante el servicio oficial de Gipuzkoa
-      try {
-        const tooltipUrl = `https://ssl6.gipuzkoa.eus/Catastro/tooltip/urbana.aspx?id=${encodeURIComponent(cleanRef)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`;
-        const res = await fetch(tooltipUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        let sCode = '0001';
-        let portalNum = '001';
-        let streetName = '';
-
-        if (res.ok) {
-          const html = await res.text();
-          const linkMatch = html.match(/href=['"][^'"]*refMapa\.asp\?([^'"]+)['"]/i);
-          if (linkMatch) {
-            const rawParams = linkMatch[1].replace(/&amp;/g, '&');
-            const qMatchCalle = rawParams.match(/Calle=([^&]+)/i);
-            const qMatchPortal = rawParams.match(/Portal=([^&]+)/i);
-            if (qMatchCalle) sCode = qMatchCalle[1];
-            if (qMatchPortal) portalNum = qMatchPortal[1];
-          }
-          const rowMatch = html.match(/<tr[^>]*class="textGrid"[^>]*>([\s\S]*?)<\/tr>/i);
-          if (rowMatch) {
-            const cols = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
-            if (cols[0]) streetName = cols[0];
-          }
-
-          // Consultar el listado completo de fincas en refMapa.asp
-          const refMapaUrl = `https://ssl7.gipuzkoa.net/OgasunaNet/Catastro/refMapa.asp?Municipio=${encodeURIComponent(munCode)}&RefCatastral=${encodeURIComponent(cleanRef)}&Calle=${encodeURIComponent(sCode)}&Portal=${encodeURIComponent(portalNum)}&Idioma=Cas`;
-          const resM = await fetch(refMapaUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0',
-              'Referer': 'https://ssl6.gipuzkoa.eus/'
-            }
-          });
-
-          if (resM.ok) {
-            const htmlM = await resM.text();
-            const fincasMatches = [...htmlM.matchAll(/<tr[^>]*bgcolor="#FFFFFF"[^>]*>([\s\S]*?)<\/tr>/gi)].map(m => m[1]);
-            if (fincasMatches.length > 0) {
-              const cleanPortal = portalNum.replace(/^0+/, '');
-              if (streetName) {
-                mainAddress = `C/ ${streetName} ${cleanPortal}`.trim();
-              }
-
-              subparcels = fincasMatches.map((rowHtml, idx) => {
-                const fnMatch = rowHtml.match(/EnviarDatosFinca\('([^']+)',\s*'([^']+)'\)/i);
-                const cols = [...rowHtml.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => m[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim());
-                const fincaId = fnMatch ? fnMatch[1] : (cols[0] ? cols[0].split(' ')[0] : `${cleanRef}-${idx + 1}`);
-                const digito = fnMatch ? fnMatch[2] : (cols[0] && cols[0].split(' ')[1] ? cols[0].split(' ')[1] : '');
-                const esc = cols[1] && cols[1] !== '-' ? `Esc. ${cols[1]}` : '';
-                const planta = cols[2] && cols[2] !== '-' ? `Planta ${cols[2]}` : '';
-                const mano = cols[3] && cols[3] !== '-' ? `Mano ${cols[3]}` : '';
-                const destino = cols[4] || 'INMUEBLE';
-                const sup = cols[5] ? `${cols[5]} m²` : '';
-
-                const doorParts = [planta, mano, esc].filter(Boolean).join(' - ');
-                const interior = doorParts ? `${doorParts} (${sup} · ${destino})` : `Finca ${fincaId} ${digito} (${sup} · ${destino})`;
-                const addr = streetName ? `C/ ${streetName} ${cleanPortal}` : `Parcela ${cleanRef}`;
-
-                return {
-                  id: `${fincaId}${digito ? `-${digito}` : ''}`,
-                  ref20: `${fincaId}${digito ? ` ${digito}` : ''}`,
-                  fincaId,
-                  codDigito: digito,
-                  cargo: String(idx + 1).padStart(3, '0'),
-                  address: addr,
-                  interior,
-                  superficie: sup,
-                  uso: destino,
-                  muni: munCode,
-                  prov: 'Gipuzkoa',
-                  del: '20',
-                  mun: munCode,
-                  parCode: cleanRef,
-                  polCode: '',
-                  subareaCode: String(idx + 1)
-                };
-              });
-            }
-          }
+      const isRustic = cleanRef.includes('-');
+      let rusticRef = cleanRef;
+      if (isRustic) {
+        const segs = cleanRef.split('-');
+        if (segs.length === 3) {
+          rusticRef = `${segs[1]}-${segs[2]}`;
         }
-      } catch (errScrap) {
-        console.warn('Error obteniendo desglose Gipuzkoa:', errScrap);
+      }
+
+      if (isRustic) {
+        // --- PARCELA RÚSTICA ---
+        try {
+          const tooltipUrl = `https://ssl6.gipuzkoa.eus/Catastro/tooltip/rustica.aspx?id=${encodeURIComponent(rusticRef)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`;
+          const res = await fetch(tooltipUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+          let refMapaUrl = '';
+          if (res.ok) {
+            const html = await res.text();
+            const linkMatch = html.match(/href=['"]([^'"]*refMapa\.asp[^'"]*)['"]/i);
+            if (linkMatch) {
+              refMapaUrl = linkMatch[1].replace(/&amp;/g, '&');
+            }
+          }
+
+          if (!refMapaUrl) {
+            const [pol, par] = rusticRef.split('-');
+            refMapaUrl = `https://ssl7.gipuzkoa.net/OgasunaNet/Rustico/refMapa.asp?Cod_munic=${encodeURIComponent(munCode)}&poligono=${encodeURIComponent(pol)}&parcela=${encodeURIComponent(par)}&origen=unidad_grafica&Idioma=Cas`;
+          }
+
+          let cultivos = [];
+          try {
+            const resM = await fetch(refMapaUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0',
+                'Referer': 'https://ssl6.gipuzkoa.eus/'
+              }
+            });
+            if (resM.ok) {
+              const htmlM = await resM.text();
+              const subSecIdx = htmlM.indexOf('Datos de subParcelas');
+              if (subSecIdx !== -1) {
+                const subHtml = htmlM.substring(subSecIdx);
+                const rows = [...subHtml.matchAll(/<tr[^>]*bgcolor="#FFFFFF"[^>]*>([\s\S]*?)<\/tr>/gi)].map(m => m[1]);
+                rows.forEach((r, idx) => {
+                  const cols = [...r.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
+                  if (cols.length >= 2) {
+                    const cultivo = cols[0] || 'RÚSTICO';
+                    const sup = cols[1] ? `${cols[1]} m²` : '';
+                    cultivos.push({
+                      id: `${rusticRef}-${idx + 1}`,
+                      ref20: rusticRef,
+                      cargo: String(idx + 1).padStart(3, '0'),
+                      address: `Polígono ${rusticRef.split('-')[0]}, Parcela ${rusticRef.split('-')[1]}`,
+                      interior: `Subparcela ${idx + 1} (${sup} · ${cultivo})`,
+                      superficie: sup,
+                      uso: cultivo,
+                      muni: munCode,
+                      prov: 'Gipuzkoa',
+                      del: '20',
+                      mun: munCode,
+                      parCode: rusticRef,
+                      polCode: rusticRef.split('-')[0] || '',
+                      subareaCode: String(idx + 1)
+                    });
+                  }
+                });
+              }
+            }
+          } catch (errM) {
+            console.warn('Error en refMapa rústica:', errM);
+          }
+
+          const [pol, par] = rusticRef.split('-');
+          mainAddress = `Polígono ${pol}, Parcela ${par}`;
+          if (cultivos.length > 0) {
+            subparcels = cultivos;
+          }
+        } catch (errRustic) {
+          console.warn('Error obteniendo desglose rústico Gipuzkoa:', errRustic);
+        }
+      } else {
+        // --- PARCELA URBANA ---
+        try {
+          const tooltipUrl = `https://ssl6.gipuzkoa.eus/Catastro/tooltip/urbana.aspx?id=${encodeURIComponent(cleanRef)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`;
+          const res = await fetch(tooltipUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+          let sCode = '0001';
+          let portalNum = '001';
+          let streetName = '';
+
+          if (res.ok) {
+            const html = await res.text();
+            const linkMatch = html.match(/href=['"][^'"]*refMapa\.asp\?([^'"]+)['"]/i);
+            if (linkMatch) {
+              const rawParams = linkMatch[1].replace(/&amp;/g, '&');
+              const qMatchCalle = rawParams.match(/Calle=([^&]+)/i);
+              const qMatchPortal = rawParams.match(/Portal=([^&]+)/i);
+              if (qMatchCalle) sCode = qMatchCalle[1];
+              if (qMatchPortal) portalNum = qMatchPortal[1];
+            }
+            const rowMatch = html.match(/<tr[^>]*class="textGrid"[^>]*>([\s\S]*?)<\/tr>/i);
+            if (rowMatch) {
+              const cols = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
+              if (cols[0]) streetName = cols[0];
+            }
+
+            // Consultar el listado completo de fincas en refMapa.asp
+            const refMapaUrl = `https://ssl7.gipuzkoa.net/OgasunaNet/Catastro/refMapa.asp?Municipio=${encodeURIComponent(munCode)}&RefCatastral=${encodeURIComponent(cleanRef)}&Calle=${encodeURIComponent(sCode)}&Portal=${encodeURIComponent(portalNum)}&Idioma=Cas`;
+            const resM = await fetch(refMapaUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0',
+                'Referer': 'https://ssl6.gipuzkoa.eus/'
+              }
+            });
+
+            if (resM.ok) {
+              const htmlM = await resM.text();
+              const fincasMatches = [...htmlM.matchAll(/<tr[^>]*bgcolor="#FFFFFF"[^>]*>([\s\S]*?)<\/tr>/gi)].map(m => m[1]);
+              if (fincasMatches.length > 0) {
+                const cleanPortal = portalNum.replace(/^0+/, '');
+                if (streetName) {
+                  mainAddress = `C/ ${streetName} ${cleanPortal}`.trim();
+                }
+
+                subparcels = fincasMatches.map((rowHtml, idx) => {
+                  const fnMatch = rowHtml.match(/EnviarDatosFinca\('([^']+)',\s*'([^']+)'\)/i);
+                  const cols = [...rowHtml.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => m[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim());
+                  const fincaId = fnMatch ? fnMatch[1] : (cols[0] ? cols[0].split(' ')[0] : `${cleanRef}-${idx + 1}`);
+                  const digito = fnMatch ? fnMatch[2] : (cols[0] && cols[0].split(' ')[1] ? cols[0].split(' ')[1] : '');
+                  const esc = cols[1] && cols[1] !== '-' ? `Esc. ${cols[1]}` : '';
+                  const planta = cols[2] && cols[2] !== '-' ? `Planta ${cols[2]}` : '';
+                  const mano = cols[3] && cols[3] !== '-' ? `Mano ${cols[3]}` : '';
+                  const destino = cols[4] || 'INMUEBLE';
+                  const sup = cols[5] ? `${cols[5]} m²` : '';
+
+                  const doorParts = [planta, mano, esc].filter(Boolean).join(' - ');
+                  const interior = doorParts ? `${doorParts} (${sup} · ${destino})` : `Finca ${fincaId} ${digito} (${sup} · ${destino})`;
+                  const addr = streetName ? `C/ ${streetName} ${cleanPortal}` : `Parcela ${cleanRef}`;
+
+                  return {
+                    id: `${fincaId}${digito ? `-${digito}` : ''}`,
+                    ref20: `${fincaId}${digito ? ` ${digito}` : ''}`,
+                    fincaId,
+                    codDigito: digito,
+                    cargo: String(idx + 1).padStart(3, '0'),
+                    address: addr,
+                    interior,
+                    superficie: sup,
+                    uso: destino,
+                    muni: munCode,
+                    prov: 'Gipuzkoa',
+                    del: '20',
+                    mun: munCode,
+                    parCode: cleanRef,
+                    polCode: '',
+                    subareaCode: String(idx + 1)
+                  };
+                });
+              }
+            }
+          }
+        } catch (errScrap) {
+          console.warn('Error obteniendo desglose Gipuzkoa:', errScrap);
+        }
       }
 
       if (subparcels.length === 0) {
+        const fallbackRef = isRustic ? rusticRef : cleanRef;
         subparcels = [
           {
-            id: cleanRef,
-            ref20: cleanRef,
+            id: fallbackRef,
+            ref20: fallbackRef,
             cargo: '001',
             address: mainAddress,
-            interior: 'Parcela / Inmueble Único',
+            interior: isRustic ? `Parcela Rústica ${fallbackRef}` : 'Parcela / Inmueble Único',
             muni: munCode,
             prov: 'Gipuzkoa',
             del: '20',
             mun: munCode,
-            parCode: parCode,
-            polCode: '',
+            parCode: fallbackRef,
+            polCode: isRustic ? (fallbackRef.split('-')[0] || '') : '',
             subareaCode: '1'
           }
         ];
@@ -347,8 +429,17 @@ export class GipuzkoaProvider {
   async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, polCode) {
     try {
       const ayto = parseInt(munCode, 10) || '69';
+      let clean = String(refCat || '').trim();
+      const isRustic = clean.includes('-');
+      if (isRustic) {
+        const segs = clean.split('-');
+        if (segs.length === 3) {
+          clean = `${segs[1]}-${segs[2]}`;
+        }
+      }
+      const pageType = isRustic ? 'rustica' : 'urbana';
       // URL oficial de la ficha catastral de Gipuzkoa (detalles, subparcelas, descargas GML/SHP/KML/DXF)
-      const url = `https://ssl6.gipuzkoa.eus/Catastro/tooltip/urbana.aspx?id=${encodeURIComponent(refCat)}&idioma=esp&aytoId=${encodeURIComponent(ayto)}&herr=1`;
+      const url = `https://ssl6.gipuzkoa.eus/Catastro/tooltip/${pageType}.aspx?id=${encodeURIComponent(clean)}&idioma=esp&aytoId=${encodeURIComponent(ayto)}&herr=1`;
       await WebBrowser.openBrowserAsync(url, {
         toolbarColor: '#0055a5', // Azul oficial de Gipuzkoa
         controlsColor: '#ffffff',

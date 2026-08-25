@@ -94,7 +94,7 @@ export const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
     var targetDigito = ${JSON.stringify(targetDigito)};
 
     var currentUrl = window.location.href;
-    if (currentUrl.indexOf('urbana.aspx') !== -1 && targetFinca) {
+    if ((currentUrl.indexOf('urbana.aspx') !== -1 || currentUrl.indexOf('rustica.aspx') !== -1) && targetFinca) {
       var verLink = document.querySelector('table#tblParcelas a[href*="refMapa.asp"]');
       if (verLink) {
         setTimeout(function() {

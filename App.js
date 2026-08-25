@@ -615,12 +615,22 @@ export default function App() {
       const munCode = item.mun || '69';
       const fincaId = item.fincaId || '';
       const codDigito = item.codDigito || '';
-      const targetRef = item.refCat || clean;
-      const title = item.interior ? `Finca · ${item.interior.split('(')[0].trim()}` : (item.address || 'Ficha Catastral · Gipuzkoa');
+      let targetRef = item.refCat || clean;
+
+      const isRustic = targetRef.includes('-');
+      if (isRustic) {
+        const segs = targetRef.split('-');
+        if (segs.length === 3) {
+          targetRef = `${segs[1]}-${segs[2]}`;
+        }
+      }
+
+      const title = item.interior ? (isRustic ? `Rústica · ${targetRef}` : `Finca · ${item.interior.split('(')[0].trim()}`) : (item.address || (isRustic ? `Parcela Rústica ${targetRef}` : 'Ficha Catastral · Gipuzkoa'));
 
       setFichaTitle(title);
       setFichaInjectedJs(getGipuzkoaInjectedJs(fincaId, codDigito));
-      setFichaWebViewUrl(`https://ssl6.gipuzkoa.eus/Catastro/tooltip/urbana.aspx?id=${encodeURIComponent(targetRef)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`);
+      const pageType = isRustic ? 'rustica' : 'urbana';
+      setFichaWebViewUrl(`https://ssl6.gipuzkoa.eus/Catastro/tooltip/${pageType}.aspx?id=${encodeURIComponent(targetRef)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`);
       setFichaWebViewVisible(true);
       return;
     }
