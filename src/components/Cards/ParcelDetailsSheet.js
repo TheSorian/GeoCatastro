@@ -9,6 +9,7 @@ import {
   Animated,
   Dimensions
 } from 'react-native';
+import { openGpsNavigation } from '../../utils/navigationLauncher';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -106,10 +107,17 @@ const ParcelDetailsSheet = ({
             >
               <Text style={styles.btnPrimaryText}>
                 {parcelDetails.count === 1 
-                  ? '📄 Abrir Ficha del Inmueble' 
-                  : (selectedRegion === 'NA' || selectedRegion === 'VI' || selectedRegion === 'BI' || selectedRegion === 'SS' ? '📄 Abrir Ficha de Parcela' : '📄 Abrir Mapa de Parcela')
+                  ? '📄 Ficha Inmueble' 
+                  : (selectedRegion === 'NA' || selectedRegion === 'VI' || selectedRegion === 'BI' || selectedRegion === 'SS' ? '📄 Ficha Parcela' : '📄 Mapa Parcela')
                 }
               </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.btnNavigate}
+              onPress={() => openGpsNavigation(parcelDetails.lat, parcelDetails.lon, parcelDetails.address || 'Parcela')}
+            >
+              <Text style={styles.btnNavigateText}>🚗 Cómo llegar</Text>
             </TouchableOpacity>
 
             {subparcels.length > 1 && (
@@ -123,7 +131,7 @@ const ParcelDetailsSheet = ({
                 }}
               >
                 <Text style={styles.btnSecondaryText}>
-                  {showSubparcels ? '▲ Ocultar Inmuebles' : '▼ Ver Inmuebles'}
+                  {showSubparcels ? '▲ Inmuebles' : '▼ Inmuebles'}
                 </Text>
               </TouchableOpacity>
             )}
@@ -364,6 +372,20 @@ const styles = StyleSheet.create({
   },
   btnSecondaryText: {
     color: '#0066cc',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  btnNavigate: {
+    flex: 1.5,
+    backgroundColor: '#e8f5e9',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#a5d6a7',
+  },
+  btnNavigateText: {
+    color: '#2e7d32',
     fontWeight: 'bold',
     fontSize: 12,
   },

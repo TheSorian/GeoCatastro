@@ -7,8 +7,11 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
+  Image,
   Alert
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import PhotoViewerModal from './PhotoViewerModal';
 
 const SaveFavoriteModal = ({
   visible,
@@ -18,78 +21,144 @@ const SaveFavoriteModal = ({
 }) => {
   const [customName, setCustomName] = useState('');
   const [notes, setNotes] = useState('');
+  const [photos, setPhotos] = useState([]);
+  const [previewPhotoUri, setPreviewPhotoUri] = useState(null);
 
   useEffect(() => {
     if (visible && parcel) {
       setCustomName(parcel.customName || parcel.address || 'Mi Parcela');
       setNotes(parcel.notes || '');
+      setPhotos(parcel.photos || []);
     }
   }, [visible, parcel]);
+
+  const handlePickPhoto = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/jpeg', 'image/png', 'image/webp', 'image/*'],
+        copyToCacheDirectory: true
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        const newPhoto = {
+          uri: file.uri,
+          name: file.name || 'foto.jpg',
+          size: file.size,
+          timestamp: Date.now()
+        };
+        setPhotos(prev => [...prev, newPhoto]);
+      }
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo seleccionar la imagen.');
+    }
+  };
+
+  const handleRemovePhoto = (indexToRemove) => {
+    setPhotos(prev => prev.filter((_, idx) => idx !== indexToRemove));
+  };
 
   const handleSave = () => {
     if (!customName.trim()) {
       Alert.alert('Nombre requerido', 'Por favor asigna un nombre para identificar este favorito.');
       return;
     }
-    onSave(parcel, customName.trim(), notes.trim());
+    onSave(parcel, customName.trim(), notes.trim(), photos);
     onClose();
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
-          <View style={styles.header}>
-            <Text style={styles.title}>⭐ Guardar en Favoritos</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
-            <View style={styles.parcelInfoBox}>
-              <Text style={styles.infoAddress} numberOfLines={2}>{parcel?.address || 'Ubicación'}</Text>
-              <Text style={styles.infoRef}>Ref: {parcel?.ref20 || parcel?.refCat || '-'}</Text>
+    <>
+      <Modal
+        visible={visible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={onClose}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.header}>
+              <Text style={styles.title}>⭐ Guardar en Favoritos</Text>
+              <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+                <Text style={styles.closeBtnText}>✕</Text>
+              </TouchableOpacity>
             </View>
 
-            <Text style={styles.fieldLabel}>Nombre Personalizado</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ej: Casa del pueblo, Parcela olivar..."
-              placeholderTextColor="#999"
-              value={customName}
-              onChangeText={setCustomName}
-            />
+            <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
+              <View style={styles.parcelInfoBox}>
+                <Text style={styles.infoAddress} numberOfLines={2}>{parcel?.address || 'Ubicación'}</Text>
+                <Text style={styles.infoRef}>Ref: {parcel?.ref20 || parcel?.refCat || '-'}</Text>
+              </View>
 
-            <Text style={styles.fieldLabel}>Notas Privadas (Opcional)</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Añade observaciones, contacto del dueño, tasación..."
-              placeholderTextColor="#999"
-              value={notes}
-              onChangeText={setNotes}
-              multiline={true}
-              numberOfLines={3}
-            />
-          </ScrollView>
+              <Text style={styles.fieldLabel}>Nombre Personalizado</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ej: Casa del pueblo, Parcela olivar..."
+                placeholderTextColor="#999"
+                value={customName}
+                onChangeText={setCustomName}
+              />
 
-          <View style={styles.actionsRow}>
-            <TouchableOpacity style={styles.btnCancel} onPress={onClose}>
-              <Text style={styles.btnCancelText}>Cancelar</Text>
-            </TouchableOpacity>
+              <Text style={styles.fieldLabel}>Notas Privadas (Opcional)</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Añade observaciones, contacto del dueño, mojones, tasación..."
+                placeholderTextColor="#999"
+                value={notes}
+                onChangeText={setNotes}
+                multiline={true}
+                numberOfLines={3}
+              />
 
-            <TouchableOpacity style={styles.btnSave} onPress={handleSave}>
-              <Text style={styles.btnSaveText}>Guardar</Text>
-            </TouchableOpacity>
+              {/* Sección de Fotos Adjuntas */}
+              <View style={styles.photosHeaderRow}>
+                <Text style={styles.fieldLabel}>📸 Fotos de la Finca ({photos.length})</Text>
+                <TouchableOpacity style={styles.btnAddPhoto} onPress={handlePickPhoto}>
+                  <Text style={styles.btnAddPhotoText}>➕ Añadir Foto</Text>
+                </TouchableOpacity>
+              </View>
+
+              {photos.length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photosScroll}>
+                  {photos.map((item, idx) => (
+                    <View key={idx} style={styles.photoThumbContainer}>
+                      <TouchableOpacity onPress={() => setPreviewPhotoUri(item.uri)}>
+                        <Image source={{ uri: item.uri }} style={styles.photoThumb} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.photoDeleteBtn}
+                        onPress={() => handleRemovePhoto(idx)}
+                      >
+                        <Text style={styles.photoDeleteBtnText}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : (
+                <Text style={styles.noPhotosText}>No hay fotos adjuntas a esta finca todavía.</Text>
+              )}
+            </ScrollView>
+
+            <View style={styles.actionsRow}>
+              <TouchableOpacity style={styles.btnCancel} onPress={onClose}>
+                <Text style={styles.btnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.btnSave} onPress={handleSave}>
+                <Text style={styles.btnSaveText}>Guardar</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+
+      <PhotoViewerModal
+        visible={!!previewPhotoUri}
+        photoUri={previewPhotoUri}
+        photoTitle={customName || 'Foto de la Finca'}
+        onClose={() => setPreviewPhotoUri(null)}
+      />
+    </>
   );
 };
 
@@ -165,8 +234,65 @@ const styles = StyleSheet.create({
     color: '#111',
   },
   textArea: {
-    height: 70,
+    height: 60,
     textAlignVertical: 'top',
+  },
+  photosHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  btnAddPhoto: {
+    backgroundColor: '#e6f7ff',
+    borderWidth: 1,
+    borderColor: '#91d5ff',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  btnAddPhotoText: {
+    fontSize: 11,
+    color: '#0050b3',
+    fontWeight: 'bold',
+  },
+  photosScroll: {
+    marginVertical: 6,
+  },
+  photoThumbContainer: {
+    position: 'relative',
+    marginRight: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  photoThumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    backgroundColor: '#eee',
+  },
+  photoDeleteBtn: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    backgroundColor: 'rgba(255, 77, 79, 0.9)',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoDeleteBtnText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  noPhotosText: {
+    fontSize: 11,
+    color: '#999',
+    fontStyle: 'italic',
+    marginBottom: 8,
   },
   actionsRow: {
     flexDirection: 'row',
