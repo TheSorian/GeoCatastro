@@ -12,7 +12,7 @@
 
 * 🗺️ **Visor de Mapas y Catastro:**
   - Mapas base: Satélite (IGN PNOA, Esri), Topográfico y Callejero.
-  - Capa catastral interactiva (Sede Electrónica, Navarra, Bizkaia).
+  - Capa catastral interactiva (Sede Electrónica, Navarra, Bizkaia, Álava y Gipuzkoa).
   - Zoom ultra-detallado sin cortes.
 * 📏 **Herramientas de Medición:**
   - Cálculo en tiempo real de distancias, áreas y perímetros.
@@ -24,7 +24,7 @@
 * 📄 **Fichas e Inmuebles:**
   - Listado de subparcelas y división horizontal (pisos, locales, trasteros).
   - Apertura directa de la **Ficha Informativa Oficial** del inmueble.
-  - **Generación y descarga de la Ficha en PDF nativo** para compartir (incluyendo soporte especial para Bizkaia).
+  - **Generación y descarga de la Ficha en PDF nativo** para compartir (incluye soporte para las Haciendas Forales Vascas).
 * ⚙️ **Otras Utilidades:**
   - Historial persistente de búsquedas recientes.
   - Guardado de DNI/NIF para autocompletar rápidamente el acceso a consultas protegidas.
