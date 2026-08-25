@@ -124,13 +124,17 @@ export const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
     var targetFinca = ${JSON.stringify(targetFinca)};
     var targetDigito = ${JSON.stringify(targetDigito)};
 
-    if (targetFinca) {
-      var triggered = false;
-      function autoOpenFinca() {
-        if (triggered) return;
+    if (targetFinca && !window.__fincaSubmitted) {
+      var fincaPoller = setInterval(function() {
+        if (window.__fincaSubmitted) {
+          clearInterval(fincaPoller);
+          return;
+        }
+
         var currentUrl = window.location.href || '';
         if (currentUrl.indexOf('finca.asp') !== -1) {
-          triggered = true;
+          window.__fincaSubmitted = true;
+          clearInterval(fincaPoller);
           return;
         }
 
@@ -138,41 +142,38 @@ export const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
           var cleanFinca = String(targetFinca).trim();
           var cleanDig = String(targetDigito).trim();
 
-          // 1. Si estamos en tooltip, click en Ver
+          // 1. Si estamos en tooltip/urbana o rustica, navegar a refMapa
           if (currentUrl.indexOf('urbana.aspx') !== -1 || currentUrl.indexOf('rustica.aspx') !== -1) {
             var verLink = document.querySelector('table#tblParcelas a[href*="refMapa.asp"]');
             if (verLink) {
+              window.__fincaSubmitted = true;
+              clearInterval(fincaPoller);
               window.location.href = verLink.href;
               return;
             }
           }
 
           // 2. Si estamos en refCatastral o parcela:
-          // A. Click en el enlace directo de la tabla
+          // A. Click en el enlace de la tabla con esa finca
           var links = document.querySelectorAll('a[onclick*="EnviarDatosFinca"]');
           for (var i = 0; i < links.length; i++) {
             var oc = links[i].getAttribute('onclick') || '';
             if (oc.indexOf(cleanFinca) !== -1) {
-              triggered = true;
+              window.__fincaSubmitted = true;
+              clearInterval(fincaPoller);
               links[i].click();
               return;
             }
           }
 
-          // B. Llamar a EnviarDatosFinca si existe la funcion y el formulario
-          if (typeof window.EnviarDatosFinca === 'function' && (document.fincas || document.forms['fincas'] || document.querySelector('form[name="fincas"]'))) {
-            triggered = true;
-            window.EnviarDatosFinca(cleanFinca, cleanDig);
-            return;
-          }
-
-          // C. Enviar formulario fincas directamente
+          // B. Enviar formulario fincas si está disponible
           var f = document.fincas || document.forms['fincas'] || document.querySelector('form[name="fincas"]');
           if (f && f.idFinca) {
-            triggered = true;
+            window.__fincaSubmitted = true;
+            clearInterval(fincaPoller);
             f.idFinca.value = cleanFinca;
             if (f.codDigito) f.codDigito.value = cleanDig;
-            f.action = 'finca.asp';
+            f.action = 'https://ssl7.gipuzkoa.net/OgasunaNet/Catastro/finca.asp';
             if (typeof f.submit === 'function') {
               f.submit();
             } else {
@@ -181,9 +182,9 @@ export const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
             return;
           }
         } catch (e) {}
-      }
+      }, 150);
 
-      setInterval(autoOpenFinca, 50);
+      setTimeout(function() { clearInterval(fincaPoller); }, 10000);
     }
   })();
   true;
