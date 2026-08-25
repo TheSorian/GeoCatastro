@@ -859,7 +859,7 @@ export default function App() {
   // Generador de script para el Visor In-App de Gipuzkoa (con zoom, formateo y autofoco de finca)
   const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
     (function() {
-      // 1. Inyectar meta viewport y estilo CSS optimizado para móvil (evita cortes de texto)
+      // 1. Inyectar meta viewport y estilo CSS optimizado para móvil
       try {
         var meta = document.createElement('meta');
         meta.name = 'viewport';
@@ -874,11 +874,17 @@ export default function App() {
             min-width: 100% !important;
             margin: 0 !important;
             padding: 8px !important;
+            background-color: #ffffff !important;
             box-sizing: border-box !important;
             -webkit-text-size-adjust: 100% !important;
           }
           * {
             box-sizing: border-box !important;
+          }
+          form {
+            float: none !important;
+            width: 100% !important;
+            display: block !important;
           }
           table {
             width: 100% !important;
@@ -886,24 +892,53 @@ export default function App() {
             border-collapse: collapse !important;
             table-layout: auto !important;
           }
+          #bodyTable, #tblParcelas {
+            width: 100% !important;
+            display: table !important;
+          }
+          tr {
+            display: table-row !important;
+            visibility: visible !important;
+          }
           td, th {
             font-size: 13px !important;
-            line-height: 1.35 !important;
+            line-height: 1.4 !important;
             padding: 6px 4px !important;
             white-space: normal !important;
             word-break: break-word !important;
+            display: table-cell !important;
+            visibility: visible !important;
           }
-          a, span, b, p {
+          .textSec td, tr.textSec td {
+            background-color: #666666 !important;
+            color: #ffffff !important;
+            font-weight: bold !important;
+            font-size: 12px !important;
+          }
+          .textGrid td, tr.textGrid td {
+            background-color: #f9f9f9 !important;
+            color: #000000 !important;
+            font-size: 13px !important;
+          }
+          a {
+            color: #0055a5 !important;
+            text-decoration: underline !important;
+            font-weight: bold !important;
             font-size: 13px !important;
           }
           .header {
             font-size: 15px !important;
             font-weight: bold !important;
-            padding: 6px 0 !important;
+            padding: 8px !important;
+            background-color: #0055a5 !important;
+            color: #ffffff !important;
           }
           .downGroup {
-            min-height: 55px !important;
-            padding: 4px !important;
+            min-height: 60px !important;
+            padding: 6px !important;
+            border: 1px solid #ccc !important;
+            border-radius: 6px !important;
+            background-color: #f5f5f5 !important;
           }
           .selector1, .selector2, img[src*="flecha"], img[src*="contaritos"] {
             display: none !important;
@@ -912,7 +947,7 @@ export default function App() {
         document.getElementsByTagName('head')[0].appendChild(style);
       } catch (e) {}
 
-      // 2. Si estamos en tooltip/urbana.aspx y se pide una finca específica o ver inmuebles, hacer clic en "Ver"
+      // 2. Si estamos en tooltip/urbana.aspx y se pide una finca específica, hacer clic en "Ver"
       var targetFinca = ${JSON.stringify(targetFinca)};
       var targetDigito = ${JSON.stringify(targetDigito)};
 
@@ -1341,7 +1376,7 @@ export default function App() {
     if (selectedRegion === 'SS') {
       const clean = String(ref || '').replace(/\s+/g, '');
       const munCode = item.mun || '69';
-      const fincaId = item.fincaId || (clean.length < 10 ? clean : '');
+      const fincaId = item.fincaId || '';
       const codDigito = item.codDigito || '';
       const title = item.interior ? `Finca · ${item.interior.split('(')[0].trim()}` : (item.address || 'Ficha Catastral · Gipuzkoa');
 
