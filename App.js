@@ -1378,11 +1378,12 @@ export default function App() {
       const munCode = item.mun || '69';
       const fincaId = item.fincaId || '';
       const codDigito = item.codDigito || '';
+      const targetRef = item.refCat || clean;
       const title = item.interior ? `Finca · ${item.interior.split('(')[0].trim()}` : (item.address || 'Ficha Catastral · Gipuzkoa');
 
       setFichaTitle(title);
       setFichaInjectedJs(getGipuzkoaInjectedJs(fincaId, codDigito));
-      setFichaWebViewUrl(`https://ssl6.gipuzkoa.eus/Catastro/tooltip/urbana.aspx?id=${encodeURIComponent(item.parCode || clean)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`);
+      setFichaWebViewUrl(`https://ssl6.gipuzkoa.eus/Catastro/tooltip/urbana.aspx?id=${encodeURIComponent(targetRef)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`);
       setFichaWebViewVisible(true);
       return;
     }
