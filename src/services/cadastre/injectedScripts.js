@@ -124,22 +124,36 @@ export const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
     var targetFinca = ${JSON.stringify(targetFinca)};
     var targetDigito = ${JSON.stringify(targetDigito)};
 
-    var currentUrl = window.location.href;
-    if ((currentUrl.indexOf('urbana.aspx') !== -1 || currentUrl.indexOf('rustica.aspx') !== -1) && targetFinca) {
-      var verLink = document.querySelector('table#tblParcelas a[href*="refMapa.asp"]');
-      if (verLink) {
-        setTimeout(function() {
-          window.location.href = verLink.href;
-        }, 300);
-      }
-    }
+    if (targetFinca) {
+      var clickedVer = false;
+      var submittedFinca = false;
 
-    if ((currentUrl.indexOf('refCatastral.asp') !== -1 || currentUrl.indexOf('parcela.asp') !== -1) && targetFinca) {
-      if (typeof EnviarDatosFinca === 'function') {
-        setTimeout(function() {
-          EnviarDatosFinca(targetFinca, targetDigito);
-        }, 300);
-      }
+      var checkFincaAction = setInterval(function() {
+        var url = window.location.href;
+        if (!clickedVer && (url.indexOf('urbana.aspx') !== -1 || url.indexOf('rustica.aspx') !== -1)) {
+          var verLink = document.querySelector('table#tblParcelas a[href*="refMapa.asp"]');
+          if (verLink) {
+            clickedVer = true;
+            clearInterval(checkFincaAction);
+            window.location.href = verLink.href;
+          }
+        } else if (!submittedFinca && (url.indexOf('refCatastral.asp') !== -1 || url.indexOf('refMapa.asp') !== -1 || url.indexOf('parcela.asp') !== -1)) {
+          if (typeof EnviarDatosFinca === 'function' && document.forms['fincas']) {
+            submittedFinca = true;
+            clearInterval(checkFincaAction);
+            EnviarDatosFinca(targetFinca, targetDigito);
+          } else {
+            var fincaLink = document.querySelector('a[onclick*="' + targetFinca + '"]');
+            if (fincaLink) {
+              submittedFinca = true;
+              clearInterval(checkFincaAction);
+              fincaLink.click();
+            }
+          }
+        }
+      }, 200);
+
+      setTimeout(function() { clearInterval(checkFincaAction); }, 10000);
     }
   })();
   true;

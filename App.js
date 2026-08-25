@@ -615,7 +615,7 @@ export default function App() {
       const munCode = item.mun || '69';
       const fincaId = item.fincaId || '';
       const codDigito = item.codDigito || '';
-      let targetRef = item.refCat || clean;
+      let targetRef = item.parCode || item.refCat || parcelDetails?.refCat || selectedParcel?.ref || clean;
 
       const isRustic = targetRef.includes('-');
       if (isRustic) {

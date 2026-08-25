@@ -252,6 +252,7 @@ export class GipuzkoaProvider {
                     const sup = cols[1] ? `${cols[1]} m²` : '';
                     cultivos.push({
                       id: `${rusticRef}-${idx + 1}`,
+                      refCat: rusticRef,
                       ref20: rusticRef,
                       cargo: String(idx + 1).padStart(3, '0'),
                       address: `Polígono ${rusticRef.split('-')[0]}, Parcela ${rusticRef.split('-')[1]}`,
@@ -342,6 +343,7 @@ export class GipuzkoaProvider {
 
                   return {
                     id: `${fincaId}${digito ? `-${digito}` : ''}`,
+                    refCat: cleanRef,
                     ref20: `${fincaId}${digito ? ` ${digito}` : ''}`,
                     fincaId,
                     codDigito: digito,
