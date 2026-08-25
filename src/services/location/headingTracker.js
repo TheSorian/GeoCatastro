@@ -28,6 +28,12 @@ class HeadingTracker {
     const loc = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.High
     });
+    if (loc?.coords) {
+      this.currentPosition = loc.coords;
+      if (loc.coords.heading !== undefined && loc.coords.heading !== null && loc.coords.heading >= 0) {
+        this.currentHeading = loc.coords.heading;
+      }
+    }
     return loc?.coords;
   }
 
@@ -36,12 +42,25 @@ class HeadingTracker {
    */
   async startTracking(callback) {
     if (callback) this.listeners.add(callback);
-    if (this.isTracking) return;
+    if (this.isTracking) {
+      if (this.currentPosition) this._notify();
+      return;
+    }
 
     const hasPermission = await this.requestPermissions();
     if (!hasPermission) return;
 
     this.isTracking = true;
+
+    // Notificar posición inicial de inmediato
+    this.getCurrentPosition()
+      .then((coords) => {
+        if (coords) {
+          this.currentPosition = coords;
+          this._notify();
+        }
+      })
+      .catch(() => {});
 
     try {
       // 1. Suscripción a cambios de posición
