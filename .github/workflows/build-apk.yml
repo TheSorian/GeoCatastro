@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -57,11 +59,11 @@ jobs:
         id: tag_message
         run: |
           TAG_MSG=$(git tag -l --format='%(contents)' ${{ github.ref_name }})
-          if [ -z "$TAG_MSG" ]; then
-            TAG_MSG="Novedades y mejoras de rendimiento."
+          if [ -z "$TAG_MSG" ] || [ ${#TAG_MSG} -lt 15 ]; then
+            TAG_MSG="* ⭐ **Gestor de Favoritos y Fincas con Notas:** Guarda parcelas favoritas con nombre personalizado y notas privadas.\n* 🌾 **Búsqueda Rústica Directa:** Búsqueda por Provincia, Municipio, Polígono y Parcela con autocompletado y posicionamiento automático.\n* 💾 **Guardado de Mediciones:** Historial persistente para almacenar trazados y polígonos calculados.\n* 📤 **Exportación e 📥 Importación KML:** Compatibilidad total con Google Earth y QGIS.\n* 🧭 **Orientación con Brújula y Punto Azul en Vivo:** Seguimiento dinámico con halo pulsante, cono y flecha de rumbo estilo Google Maps.\n* 🏗️ **Arquitectura Modular:** Refactorización integral del código y optimizaciones de rendimiento."
           fi
           echo "tag_msg<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAG_MSG" >> $GITHUB_OUTPUT
+          echo -e "$TAG_MSG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release (Only on Version Tag)
