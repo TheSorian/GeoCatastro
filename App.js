@@ -226,7 +226,8 @@ export default function App() {
           type: 'UPDATE_USER_LOCATION',
           lat,
           lon,
-          heading: 0,
+          heading: null,
+          showHeading: false,
           follow: false
         });
 
@@ -242,6 +243,17 @@ export default function App() {
     if (isLiveTracking) {
       headingTracker.stopTracking(handleLocationUpdate);
       setIsLiveTracking(false);
+      const current = headingTracker.currentPosition;
+      if (current) {
+        mapViewerRef.current?.postMessage({
+          type: 'UPDATE_USER_LOCATION',
+          lat: current.latitude,
+          lon: current.longitude,
+          heading: null,
+          showHeading: false,
+          follow: false
+        });
+      }
     } else {
       try {
         const hasPermission = await headingTracker.requestPermissions();
@@ -265,6 +277,7 @@ export default function App() {
             lat: current.latitude,
             lon: current.longitude,
             heading: current.heading || 0,
+            showHeading: true,
             follow: true
           });
         }
@@ -281,6 +294,7 @@ export default function App() {
       lat,
       lon,
       heading,
+      showHeading: true,
       follow: false
     });
   };
