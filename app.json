@@ -27,20 +27,30 @@
           "locationAlwaysAndWhenInUsePermission": "Permite a GeoCatastro acceder a tu ubicación actual para situarte en el mapa y cargar el catastro correspondiente."
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permite a GeoCatastro acceder a tus fotos para adjuntarlas a tus fincas favoritas.",
+          "cameraPermission": "Permite a GeoCatastro usar la cámara para tomar fotos de tus fincas favoritas."
+        }
+      ],
       "expo-sharing"
     ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.thesorian.geocatastro",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Permite a GeoCatastro acceder a tu ubicación actual para situarte en el mapa y cargar el catastro correspondiente."
+        "NSLocationWhenInUseUsageDescription": "Permite a GeoCatastro acceder a tu ubicación actual para situarte en el mapa y cargar el catastro correspondiente.",
+        "NSCameraUsageDescription": "Permite a GeoCatastro tomar fotos de tus parcelas favoritas.",
+        "NSPhotoLibraryUsageDescription": "Permite a GeoCatastro adjuntar fotos de tus parcelas favoritas."
       }
     },
     "android": {
       "package": "com.thesorian.geocatastro",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "CAMERA"
       ],
       "splash": {
         "image": "./assets/splash-icon.png",
