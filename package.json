@@ -1,6 +1,6 @@
 {
-  "name": "catastrogsm",
-  "version": "2.0.0",
+  "name": "geocatastro",
+  "version": "2.0.1",
   "main": "index.js",
   "dependencies": {
     "@react-native-async-storage/async-storage": "^3.1.1",
