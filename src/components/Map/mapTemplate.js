@@ -172,36 +172,37 @@ export const getLeafletHtml = () => `
     // --- Marcador de Ubicación del Usuario con Brújula / Rumbo ---
     var userLocationMarker = null;
 
-    function buildUserIconHtml(heading) {
+    function buildUserIconHtml(heading, showHeading) {
       var rot = (heading !== undefined && heading !== null && !isNaN(heading)) ? heading : 0;
+      var isVisible = !!showHeading;
       return '<div class="user-location-wrapper">' +
         '<div class="user-pulse-ring"></div>' +
-        '<div class="user-heading-cone" id="userHeadingCone" style="transform: rotate(' + rot + 'deg);">' +
+        '<div class="user-heading-cone" id="userHeadingCone" style="display: ' + (isVisible ? 'block' : 'none') + '; transform: rotate(' + rot + 'deg);">' +
           '<svg width="64" height="64" viewBox="0 0 64 64" style="display:block; overflow:visible;">' +
             '<defs>' +
               '<radialGradient id="beamGradient" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">' +
-                '<stop offset="0%" stop-color="#1a73e8" stop-opacity="0.85"/>' +
-                '<stop offset="50%" stop-color="#4285f4" stop-opacity="0.4"/>' +
+                '<stop offset="0%" stop-color="#1a73e8" stop-opacity="0.8"/>' +
+                '<stop offset="55%" stop-color="#4285f4" stop-opacity="0.32"/>' +
                 '<stop offset="100%" stop-color="#4285f4" stop-opacity="0.0"/>' +
               '</radialGradient>' +
             '</defs>' +
-            '<path d="M 32 32 L 10 4 A 32 32 0 0 1 54 4 Z" fill="url(#beamGradient)" />' +
-            '<polygon points="32,2 24,18 32,13 40,18" fill="#1a73e8" stroke="#ffffff" stroke-width="1" />' +
+            '<path d="M 32 32 L 8 2 A 34 34 0 0 1 56 2 Z" fill="url(#beamGradient)" />' +
           '</svg>' +
         '</div>' +
         '<div class="user-dot-core"></div>' +
       '</div>';
     }
 
-    function updateUserLocationMarker(lat, lon, heading) {
+    function updateUserLocationMarker(lat, lon, heading, showHeading) {
       if (!lat || !lon) return;
       var ll = [lat, lon];
       var rot = (heading !== undefined && heading !== null && !isNaN(heading)) ? heading : 0;
+      var isVisible = !!showHeading;
 
       if (!userLocationMarker) {
         var userIcon = L.divIcon({
           className: 'user-location-div-icon',
-          html: buildUserIconHtml(rot),
+          html: buildUserIconHtml(rot, isVisible),
           iconSize: [64, 64],
           iconAnchor: [32, 32]
         });
@@ -210,7 +211,10 @@ export const getLeafletHtml = () => `
         userLocationMarker.setLatLng(ll);
         var coneEl = document.getElementById('userHeadingCone');
         if (coneEl) {
-          coneEl.style.transform = 'rotate(' + rot + 'deg)';
+          coneEl.style.display = isVisible ? 'block' : 'none';
+          if (isVisible) {
+            coneEl.style.transform = 'rotate(' + rot + 'deg)';
+          }
         }
       }
     }
@@ -479,7 +483,7 @@ export const getLeafletHtml = () => `
         } else if (data.type === 'MEASURE_CLEAR') {
           clearAllMeasure();
         } else if (data.type === 'UPDATE_USER_LOCATION') {
-          updateUserLocationMarker(data.lat, data.lon, data.heading);
+          updateUserLocationMarker(data.lat, data.lon, data.heading, data.showHeading);
           if (data.follow) {
             map.setView([data.lat, data.lon], Math.max(map.getZoom(), 18));
           }
