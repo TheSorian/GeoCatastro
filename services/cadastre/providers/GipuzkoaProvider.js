@@ -347,6 +347,8 @@ export class GipuzkoaProvider {
                     ref20: `${fincaId}${digito ? ` ${digito}` : ''}`,
                     fincaId,
                     codDigito: digito,
+                    sCode,
+                    portalNum,
                     cargo: String(idx + 1).padStart(3, '0'),
                     address: addr,
                     interior,
@@ -400,6 +402,8 @@ export class GipuzkoaProvider {
           del: '20',
           mun: munCode,
           parCode,
+          sCode,
+          portalNum,
           superficie,
           noExactBuilding: false
         },

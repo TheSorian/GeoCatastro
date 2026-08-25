@@ -615,6 +615,8 @@ export default function App() {
       const munCode = item.mun || '69';
       const fincaId = item.fincaId ? String(item.fincaId).trim() : '';
       const codDigito = item.codDigito ? String(item.codDigito).trim() : '';
+      const sCode = item.sCode || parcelDetails?.sCode || '';
+      const portalNum = item.portalNum || parcelDetails?.portalNum || '';
       let targetRef = item.refCat || parcelDetails?.refCat || selectedParcel?.ref || clean;
 
       const isRustic = targetRef.includes('-');
@@ -631,12 +633,12 @@ export default function App() {
       setFichaInjectedJs(getGipuzkoaInjectedJs(fincaId, codDigito));
 
       let finalUrl = '';
-      if (fincaId) {
+      if (fincaId && sCode && portalNum) {
         if (isRustic) {
           const [pol, par] = targetRef.split('-');
           finalUrl = `https://ssl7.gipuzkoa.net/OgasunaNet/Rustico/refMapa.asp?Cod_munic=${encodeURIComponent(munCode)}&poligono=${encodeURIComponent(pol || '01')}&parcela=${encodeURIComponent(par || '001')}&origen=unidad_grafica&Idioma=Cas`;
         } else {
-          finalUrl = `https://ssl7.gipuzkoa.net/OgasunaNet/Catastro/refMapa.asp?Municipio=${encodeURIComponent(munCode)}&RefCatastral=${encodeURIComponent(targetRef)}&Calle=0470&Portal=017&Idioma=Cas`;
+          finalUrl = `https://ssl7.gipuzkoa.net/OgasunaNet/Catastro/refMapa.asp?Municipio=${encodeURIComponent(munCode)}&RefCatastral=${encodeURIComponent(targetRef)}&Calle=${encodeURIComponent(sCode)}&Portal=${encodeURIComponent(portalNum)}&Idioma=Cas`;
         }
       } else {
         const pageType = isRustic ? 'rustica' : 'urbana';
