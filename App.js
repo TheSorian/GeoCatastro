@@ -222,6 +222,14 @@ export default function App() {
           lon
         });
 
+        mapViewerRef.current?.postMessage({
+          type: 'UPDATE_USER_LOCATION',
+          lat,
+          lon,
+          heading: 0,
+          follow: false
+        });
+
         if (!measureMode) {
           await fetchParcelByCoords(lat, lon, region);
         }
@@ -251,6 +259,13 @@ export default function App() {
             type: 'MOVE_TO',
             lat: current.latitude,
             lon: current.longitude
+          });
+          mapViewerRef.current?.postMessage({
+            type: 'UPDATE_USER_LOCATION',
+            lat: current.latitude,
+            lon: current.longitude,
+            heading: current.heading || 0,
+            follow: true
           });
         }
       } catch (e) {

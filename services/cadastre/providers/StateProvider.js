@@ -168,7 +168,8 @@ export class StateProvider {
    * Obtiene las coordenadas a partir de una Referencia Catastral (Consulta_CPMRC)
    */
   async getCoordsFromRC(rc) {
-    const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:4326&RC=${rc}`;
+    const clean14 = String(rc || '').trim().substring(0, 14);
+    const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCoordenadas.asmx/Consulta_CPMRC?Provincia=&Municipio=&SRS=EPSG:4326&RC=${clean14}`;
     const response = await fetch(url);
     const xmlData = await response.text();
     const parser = new XMLParser({ parseTagValue: false });
@@ -256,11 +257,11 @@ export class StateProvider {
   }
 
   /**
-   * Obtiene lista de provincias desde la Sede del Catastro
+   * Obtiene lista de provincias desde la Sede del Catastro (ConsultaProvincia)
    */
   async getProvincias() {
     try {
-      const url = 'https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/ObtenerProvincias';
+      const url = 'https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/ConsultaProvincia';
       const response = await fetch(url);
       const xmlData = await response.text();
       const parser = new XMLParser({ parseTagValue: false });
@@ -279,11 +280,11 @@ export class StateProvider {
   }
 
   /**
-   * Obtiene lista de municipios de una provincia
+   * Obtiene lista de municipios de una provincia (ConsultaMunicipio)
    */
   async getMunicipios(provincia) {
     try {
-      const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/ObtenerMunicipios?Provincia=${encodeURIComponent(provincia)}&Municipio=`;
+      const url = `https://ovc.catastro.meh.es/ovcservweb/OVCSWLocalizacionRC/OVCCallejero.asmx/ConsultaMunicipio?Provincia=${encodeURIComponent(provincia)}&Municipio=`;
       const response = await fetch(url);
       const xmlData = await response.text();
       const parser = new XMLParser({ parseTagValue: false });
@@ -315,6 +316,7 @@ export class StateProvider {
       const jsonObj = parser.parse(xmlData);
 
       let fullRc = '';
+      let address = '';
       const dnp = jsonObj?.consulta_dnp;
 
       // 1. Caso lrcdnp
@@ -329,10 +331,10 @@ export class StateProvider {
       else if (dnp?.bico?.bi?.idbi?.rc) {
         const rcObj = dnp.bico.bi.idbi.rc;
         fullRc = `${rcObj.pc1}${rcObj.pc2}${rcObj.car || ''}${rcObj.cc1 || ''}${rcObj.cc2 || ''}`;
+        address = dnp.bico.bi.ldt || '';
       }
 
       if (fullRc) {
-        // Obtener coordenadas a partir de la RC
         const coordsRes = await this.getCoordsFromRC(fullRc);
         if (coordsRes.found) {
           return {
@@ -340,7 +342,7 @@ export class StateProvider {
             ref: fullRc,
             lat: coordsRes.lat,
             lon: coordsRes.lon,
-            address: `Polígono ${pPol}, Parcela ${pPar}, ${municipio} (${provincia})`
+            address: address || `Polígono ${pPol}, Parcela ${pPar}, ${municipio} (${provincia})`
           };
         }
       }

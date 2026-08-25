@@ -16,53 +16,51 @@ export const getLeafletHtml = () => `
     /* Estilos del Punto Azul con Cono de Rumbo estilo Google Maps */
     .user-location-wrapper {
       position: relative;
-      width: 52px;
-      height: 52px;
-      margin-left: -26px;
-      margin-top: -26px;
+      width: 64px;
+      height: 64px;
       display: flex;
       align-items: center;
       justify-content: center;
       pointer-events: none;
     }
 
-    .user-heading-cone {
-      position: absolute;
-      width: 48px;
-      height: 48px;
-      top: 2px;
-      left: 2px;
-      background: radial-gradient(circle at 50% 100%, rgba(66, 133, 244, 0.45) 0%, rgba(66, 133, 244, 0.15) 50%, rgba(66, 133, 244, 0) 75%);
-      clip-path: polygon(50% 50%, 15% 0%, 85% 0%);
-      transform-origin: center center;
-      transition: transform 0.15s ease-out;
-      pointer-events: none;
-    }
-
     .user-pulse-ring {
       position: absolute;
-      width: 32px;
-      height: 32px;
+      width: 36px;
+      height: 36px;
       border-radius: 50%;
-      background-color: rgba(66, 133, 244, 0.35);
+      background-color: rgba(26, 115, 232, 0.35);
       animation: pulse-ring 2s infinite ease-out;
+      z-index: 1;
+    }
+
+    .user-heading-cone {
+      position: absolute;
+      width: 64px;
+      height: 64px;
+      top: 0;
+      left: 0;
+      transform-origin: 32px 32px;
+      transition: transform 0.1s linear;
+      z-index: 2;
+      pointer-events: none;
     }
 
     .user-dot-core {
       position: absolute;
-      width: 14px;
-      height: 14px;
+      width: 16px;
+      height: 16px;
       border-radius: 50%;
       background-color: #1a73e8;
-      border: 2.5px solid #ffffff;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-      z-index: 5;
+      border: 3px solid #ffffff;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+      z-index: 3;
     }
 
     @keyframes pulse-ring {
-      0% { transform: scale(0.6); opacity: 1; }
-      70% { transform: scale(1.4); opacity: 0.1; }
-      100% { transform: scale(1.6); opacity: 0; }
+      0% { transform: scale(0.5); opacity: 1; }
+      70% { transform: scale(1.5); opacity: 0.15; }
+      100% { transform: scale(1.7); opacity: 0; }
     }
   </style>
 </head>
@@ -173,35 +171,46 @@ export const getLeafletHtml = () => `
 
     // --- Marcador de Ubicación del Usuario con Brújula / Rumbo ---
     var userLocationMarker = null;
-    var userConeEl = null;
+
+    function buildUserIconHtml(heading) {
+      var rot = (heading !== undefined && heading !== null && !isNaN(heading)) ? heading : 0;
+      return '<div class="user-location-wrapper">' +
+        '<div class="user-pulse-ring"></div>' +
+        '<div class="user-heading-cone" id="userHeadingCone" style="transform: rotate(' + rot + 'deg);">' +
+          '<svg width="64" height="64" viewBox="0 0 64 64" style="display:block; overflow:visible;">' +
+            '<defs>' +
+              '<radialGradient id="beamGradient" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">' +
+                '<stop offset="0%" stop-color="#1a73e8" stop-opacity="0.85"/>' +
+                '<stop offset="50%" stop-color="#4285f4" stop-opacity="0.4"/>' +
+                '<stop offset="100%" stop-color="#4285f4" stop-opacity="0.0"/>' +
+              '</radialGradient>' +
+            '</defs>' +
+            '<path d="M 32 32 L 10 4 A 32 32 0 0 1 54 4 Z" fill="url(#beamGradient)" />' +
+            '<polygon points="32,2 24,18 32,13 40,18" fill="#1a73e8" stroke="#ffffff" stroke-width="1" />' +
+          '</svg>' +
+        '</div>' +
+        '<div class="user-dot-core"></div>' +
+      '</div>';
+    }
 
     function updateUserLocationMarker(lat, lon, heading) {
       if (!lat || !lon) return;
       var ll = [lat, lon];
+      var rot = (heading !== undefined && heading !== null && !isNaN(heading)) ? heading : 0;
 
       if (!userLocationMarker) {
-        var iconHtml = '<div class="user-location-wrapper">' +
-          '<div class="user-heading-cone" id="userHeadingCone"></div>' +
-          '<div class="user-pulse-ring"></div>' +
-          '<div class="user-dot-core"></div>' +
-          '</div>';
-
         var userIcon = L.divIcon({
           className: 'user-location-div-icon',
-          html: iconHtml,
-          iconSize: [52, 52],
-          iconAnchor: [26, 26]
+          html: buildUserIconHtml(rot),
+          iconSize: [64, 64],
+          iconAnchor: [32, 32]
         });
-
         userLocationMarker = L.marker(ll, { icon: userIcon, zIndexOffset: 1000 }).addTo(map);
       } else {
         userLocationMarker.setLatLng(ll);
-      }
-
-      if (heading !== undefined && heading !== null && !isNaN(heading)) {
-        userConeEl = document.getElementById('userHeadingCone');
-        if (userConeEl) {
-          userConeEl.style.transform = 'rotate(' + heading + 'deg)';
+        var coneEl = document.getElementById('userHeadingCone');
+        if (coneEl) {
+          coneEl.style.transform = 'rotate(' + rot + 'deg)';
         }
       }
     }

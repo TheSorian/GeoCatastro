@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -23,19 +23,37 @@ const RusticSearchModal = ({
   const [poligono, setPoligono] = useState('');
   const [parcela, setParcela] = useState('');
   const [loading, setLoading] = useState(false);
+
   const [provincesList, setProvincesList] = useState([]);
   const [filteredProvinces, setFilteredProvinces] = useState([]);
   const [showProvList, setShowProvList] = useState(false);
+
+  const [municipalitiesList, setMunicipalitiesList] = useState([]);
+  const [filteredMunicipalities, setFilteredMunicipalities] = useState([]);
+  const [showMuniList, setShowMuniList] = useState(false);
 
   useEffect(() => {
     if (visible && provincesList.length === 0) {
       cadastreService.getProvincias(selectedRegion)
         .then((list) => {
-          setProvincesList(list);
+          setProvincesList(list || []);
         })
         .catch(() => {});
     }
   }, [visible]);
+
+  // Cargar lista de municipios cuando cambia la provincia
+  useEffect(() => {
+    if (provincia.trim().length >= 3) {
+      cadastreService.getMunicipios(provincia.trim().toUpperCase(), selectedRegion)
+        .then((list) => {
+          setMunicipalitiesList(list || []);
+        })
+        .catch(() => {});
+    } else {
+      setMunicipalitiesList([]);
+    }
+  }, [provincia]);
 
   const handleProvinciaChange = (text) => {
     setProvincia(text);
@@ -53,6 +71,30 @@ const RusticSearchModal = ({
   const selectProvinceItem = (provItem) => {
     setProvincia(provItem.name);
     setShowProvList(false);
+    // Cargar municipios de inmediato
+    cadastreService.getMunicipios(provItem.name, selectedRegion)
+      .then((list) => {
+        setMunicipalitiesList(list || []);
+      })
+      .catch(() => {});
+  };
+
+  const handleMunicipioChange = (text) => {
+    setMunicipio(text);
+    if (text.trim().length > 0 && municipalitiesList.length > 0) {
+      const filtered = municipalitiesList.filter(m =>
+        m.name.toLowerCase().includes(text.toLowerCase())
+      );
+      setFilteredMunicipalities(filtered);
+      setShowMuniList(filtered.length > 0);
+    } else {
+      setShowMuniList(false);
+    }
+  };
+
+  const selectMunicipalityItem = (muniItem) => {
+    setMunicipio(muniItem.name);
+    setShowMuniList(false);
   };
 
   const handleSearch = async () => {
@@ -62,6 +104,9 @@ const RusticSearchModal = ({
     }
 
     setLoading(true);
+    setShowProvList(false);
+    setShowMuniList(false);
+
     try {
       const result = await cadastreService.fetchParcelByRustic(
         provincia.trim().toUpperCase(),
@@ -82,7 +127,7 @@ const RusticSearchModal = ({
       } else {
         Alert.alert(
           'Finca no encontrada',
-          `No se encontró ninguna parcela rústica con Polígono ${poligono} y Parcela ${parcela} en ${municipio} (${provincia}). Comprueba los datos introducidos.`
+          `No se encontró ninguna parcela rústica con Polígono ${poligono} y Parcela ${parcela} en ${municipio} (${provincia}). Comprueba que los datos coincidan exactamente con la sede catastral.`
         );
       }
     } catch (e) {
@@ -116,7 +161,7 @@ const RusticSearchModal = ({
             <Text style={styles.fieldLabel}>Provincia</Text>
             <TextInput
               style={styles.input}
-              placeholder="Ej: MADRID, TOLEDO, NAVARRA..."
+              placeholder="Ej: SORIA, MADRID, TOLEDO..."
               placeholderTextColor="#999"
               value={provincia}
               onChangeText={handleProvinciaChange}
@@ -125,7 +170,7 @@ const RusticSearchModal = ({
 
             {showProvList && (
               <View style={styles.dropdownList}>
-                {filteredProvinces.slice(0, 5).map((p, idx) => (
+                {filteredProvinces.slice(0, 6).map((p, idx) => (
                   <TouchableOpacity
                     key={idx}
                     style={styles.dropdownItem}
@@ -140,19 +185,33 @@ const RusticSearchModal = ({
             <Text style={styles.fieldLabel}>Municipio</Text>
             <TextInput
               style={styles.input}
-              placeholder="Ej: COLMENAR VIEJO, ARANJUEZ..."
+              placeholder="Ej: CIDONES, COLMENAR VIEJO..."
               placeholderTextColor="#999"
               value={municipio}
-              onChangeText={setMunicipio}
+              onChangeText={handleMunicipioChange}
               autoCapitalize="characters"
             />
+
+            {showMuniList && (
+              <View style={styles.dropdownList}>
+                {filteredMunicipalities.slice(0, 6).map((m, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={styles.dropdownItem}
+                    onPress={() => selectMunicipalityItem(m)}
+                  >
+                    <Text style={styles.dropdownItemText}>{m.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
             <View style={styles.rowTwoCols}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.fieldLabel}>Polígono</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ej: 5"
+                  placeholder="Ej: 23"
                   placeholderTextColor="#999"
                   value={poligono}
                   onChangeText={setPoligono}
@@ -164,7 +223,7 @@ const RusticSearchModal = ({
                 <Text style={styles.fieldLabel}>Parcela</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ej: 12"
+                  placeholder="Ej: 5051"
                   placeholderTextColor="#999"
                   value={parcela}
                   onChangeText={setParcela}
@@ -239,7 +298,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   formScroll: {
-    maxHeight: 340,
+    maxHeight: 360,
   },
   fieldLabel: {
     fontSize: 12,
@@ -269,7 +328,8 @@ const styles = StyleSheet.create({
     borderColor: '#0066cc',
     borderRadius: 6,
     marginTop: 2,
-    elevation: 3,
+    maxHeight: 160,
+    elevation: 4,
   },
   dropdownItem: {
     paddingVertical: 8,
