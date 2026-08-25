@@ -7,20 +7,27 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
+  Image,
   Alert,
   Clipboard
 } from 'react-native';
 import { getFavorites, removeFavorite } from '../../services/storage/favoritesStorage';
+import { exportUnifiedBackup, restoreUnifiedBackup } from '../../services/storage/backupStorage';
 import { formatDate } from '../../utils/formatters';
+import { openGpsNavigation } from '../../utils/navigationLauncher';
+import PhotoViewerModal from './PhotoViewerModal';
 
 const FavoritesModal = ({
   visible,
   onClose,
-  onSelectFavorite
+  onSelectFavorite,
+  onDataRestored
 }) => {
   const [favorites, setFavorites] = useState([]);
   const [filterText, setFilterText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [previewPhotoUri, setPreviewPhotoUri] = useState(null);
+  const [previewPhotoTitle, setPreviewPhotoTitle] = useState('');
 
   useEffect(() => {
     if (visible) {
@@ -67,6 +74,40 @@ const FavoritesModal = ({
     Alert.alert('Copiado', `Referencia Catastral copiada:\n${rc}`);
   };
 
+  const handleExportBackup = async () => {
+    const res = await exportUnifiedBackup();
+    if (res.success && res.countFavorites !== undefined) {
+      Alert.alert(
+        'Copia Exportada',
+        `Se ha generado la copia de seguridad integral con:\n• ${res.countFavorites} Fincas Favoritas\n• ${res.countMeasurements} Mediciones Guardadas`
+      );
+    }
+  };
+
+  const handleRestoreBackup = async () => {
+    Alert.alert(
+      'Restaurar Copia Integral',
+      'Se importarán las Fincas Favoritas y Mediciones desde un archivo JSON sin borrar las existentes. ¿Deseas continuar?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Seleccionar Archivo JSON',
+          onPress: async () => {
+            const res = await restoreUnifiedBackup();
+            if (res.success) {
+              await loadData();
+              if (onDataRestored) onDataRestored();
+              Alert.alert(
+                'Restauración Completada',
+                `Se han restaurado con éxito:\n• ${res.restoredFavorites} Favoritos\n• ${res.restoredMeasurements} Mediciones\n\nTotal acumulado: ${res.totalFavoritesNow} fincas y ${res.totalMeasurementsNow} mediciones.`
+              );
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const filtered = favorites.filter(f => {
     if (!filterText.trim()) return true;
     const term = filterText.toLowerCase();
@@ -78,97 +119,145 @@ const FavoritesModal = ({
   });
 
   return (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
-          <View style={styles.header}>
-            <Text style={styles.title}>⭐ Mis Fincas y Parcelas Favoritas</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeBtnText}>✕</Text>
-            </TouchableOpacity>
-          </View>
+    <>
+      <Modal
+        visible={visible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={onClose}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.header}>
+              <Text style={styles.title}>⭐ Fincas y Parcelas Guardadas</Text>
+              <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+                <Text style={styles.closeBtnText}>✕</Text>
+              </TouchableOpacity>
+            </View>
 
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Filtrar por nombre, dirección o notas..."
-            placeholderTextColor="#888"
-            value={filterText}
-            onChangeText={setFilterText}
-          />
+            {/* Barra de Backup Integral (Favoritos + Mediciones) */}
+            <View style={styles.backupToolbar}>
+              <TouchableOpacity style={styles.btnBackupExport} onPress={handleExportBackup}>
+                <Text style={styles.btnBackupExportText}>📤 Copia Total (JSON)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.btnBackupRestore} onPress={handleRestoreBackup}>
+                <Text style={styles.btnBackupRestoreText}>📥 Restaurar Copia</Text>
+              </TouchableOpacity>
+            </View>
 
-          <ScrollView style={styles.listScroll}>
-            {filtered.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyIcon}>⭐</Text>
-                <Text style={styles.emptyText}>No tienes parcelas guardadas en favoritos.</Text>
-                <Text style={styles.emptySubText}>
-                  Toca cualquier parcela en el mapa y pulsa el botón ⭐ en su ficha para guardarla aquí con tus notas.
-                </Text>
-              </View>
-            ) : (
-              filtered.map((item) => {
-                const targetRef = item.ref20 || item.refCat;
-                return (
-                  <View key={item.id} style={styles.itemCard}>
-                    <View style={styles.itemHeader}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.itemTitle}>⭐ {item.customName}</Text>
-                        <Text style={styles.itemAddress} numberOfLines={2}>📍 {item.address}</Text>
-                        <Text style={styles.itemRef}>Ref: {targetRef}</Text>
-                        {item.savedAt ? (
-                          <Text style={styles.itemDate}>Guardado: {formatDate(item.savedAt)}</Text>
-                        ) : null}
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Filtrar por nombre, dirección o notas..."
+              placeholderTextColor="#888"
+              value={filterText}
+              onChangeText={setFilterText}
+            />
+
+            <ScrollView style={styles.listScroll}>
+              {filtered.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyIcon}>⭐</Text>
+                  <Text style={styles.emptyText}>No tienes parcelas guardadas en favoritos.</Text>
+                  <Text style={styles.emptySubText}>
+                    Toca cualquier parcela en el mapa y pulsa el botón ⭐ en su ficha para guardarla aquí con tus fotos y notas.
+                  </Text>
+                </View>
+              ) : (
+                filtered.map((item) => {
+                  const targetRef = item.ref20 || item.refCat;
+                  const itemPhotos = item.photos || [];
+
+                  return (
+                    <View key={item.id} style={styles.itemCard}>
+                      <View style={styles.itemHeader}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.itemTitle}>⭐ {item.customName}</Text>
+                          <Text style={styles.itemAddress} numberOfLines={2}>📍 {item.address}</Text>
+                          <Text style={styles.itemRef}>Ref: {targetRef}</Text>
+                          {item.savedAt ? (
+                            <Text style={styles.itemDate}>Guardado: {formatDate(item.savedAt)}</Text>
+                          ) : null}
+                        </View>
+                      </View>
+
+                      {item.notes ? (
+                        <Text style={styles.itemNotes} numberOfLines={3}>
+                          📝 {item.notes}
+                        </Text>
+                      ) : null}
+
+                      {/* Miniaturas de fotos adjuntas */}
+                      {itemPhotos.length > 0 && (
+                        <View style={styles.photoThumbList}>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            {itemPhotos.map((ph, idx) => (
+                              <TouchableOpacity
+                                key={idx}
+                                style={styles.miniPhotoThumb}
+                                onPress={() => {
+                                  setPreviewPhotoUri(ph.uri);
+                                  setPreviewPhotoTitle(item.customName);
+                                }}
+                              >
+                                <Image source={{ uri: ph.uri }} style={styles.miniPhotoImage} />
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      )}
+
+                      <View style={styles.itemActionsRow}>
+                        <TouchableOpacity
+                          style={styles.btnOpen}
+                          onPress={() => {
+                            onClose();
+                            onSelectFavorite(item);
+                          }}
+                        >
+                          <Text style={styles.btnOpenText}>🗺️ Ver en Mapa</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.btnNavigate}
+                          onPress={() => openGpsNavigation(item.lat, item.lon, item.customName || item.address)}
+                        >
+                          <Text style={styles.btnNavigateText}>🚗 Ruta</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.btnCopy}
+                          onPress={() => handleCopyRc(targetRef)}
+                        >
+                          <Text style={styles.btnCopyText}>📋 Copiar</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.btnDelete}
+                          onPress={() => handleDelete(item)}
+                        >
+                          <Text style={styles.btnDeleteText}>🗑</Text>
+                        </TouchableOpacity>
                       </View>
                     </View>
+                  );
+                })
+              )}
+            </ScrollView>
 
-                    {item.notes ? (
-                      <Text style={styles.itemNotes} numberOfLines={3}>
-                        📝 {item.notes}
-                      </Text>
-                    ) : null}
-
-                    <View style={styles.itemActionsRow}>
-                      <TouchableOpacity
-                        style={styles.btnOpen}
-                        onPress={() => {
-                          onClose();
-                          onSelectFavorite(item);
-                        }}
-                      >
-                        <Text style={styles.btnOpenText}>🗺️ Ver en Mapa</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={styles.btnCopy}
-                        onPress={() => handleCopyRc(targetRef)}
-                      >
-                        <Text style={styles.btnCopyText}>📋 Copiar RC</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={styles.btnDelete}
-                        onPress={() => handleDelete(item)}
-                      >
-                        <Text style={styles.btnDeleteText}>🗑</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                );
-              })
-            )}
-          </ScrollView>
-
-          <TouchableOpacity style={styles.btnCloseFooter} onPress={onClose}>
-            <Text style={styles.btnCloseFooterText}>Cerrar</Text>
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.btnCloseFooter} onPress={onClose}>
+              <Text style={styles.btnCloseFooterText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+
+      <PhotoViewerModal
+        visible={!!previewPhotoUri}
+        photoUri={previewPhotoUri}
+        photoTitle={previewPhotoTitle}
+        onClose={() => setPreviewPhotoUri(null)}
+      />
+    </>
   );
 };
 
@@ -193,7 +282,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   title: {
     fontSize: 16,
@@ -208,6 +297,39 @@ const styles = StyleSheet.create({
     color: '#888',
     fontWeight: 'bold',
   },
+  backupToolbar: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  btnBackupExport: {
+    flex: 1,
+    backgroundColor: '#e6f7ff',
+    borderWidth: 1,
+    borderColor: '#91d5ff',
+    paddingVertical: 6,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  btnBackupExportText: {
+    color: '#0050b3',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  btnBackupRestore: {
+    flex: 1,
+    backgroundColor: '#f6ffed',
+    borderWidth: 1,
+    borderColor: '#b7eb8f',
+    paddingVertical: 6,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  btnBackupRestoreText: {
+    color: '#389e0d',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
   searchInput: {
     borderWidth: 1,
     borderColor: '#ddd',
@@ -216,7 +338,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     fontSize: 13,
     backgroundColor: '#fafafa',
-    marginBottom: 12,
+    marginBottom: 10,
     color: '#111',
   },
   listScroll: {
@@ -288,9 +410,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#fff1b8',
   },
+  photoThumbList: {
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  miniPhotoThumb: {
+    marginRight: 6,
+    borderRadius: 6,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#ffe58f',
+  },
+  miniPhotoImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 6,
+  },
   itemActionsRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     marginTop: 10,
     alignItems: 'center',
   },
@@ -306,8 +444,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
+  btnNavigate: {
+    flex: 1.3,
+    backgroundColor: '#e8f5e9',
+    borderWidth: 1,
+    borderColor: '#a5d6a7',
+    paddingVertical: 7,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  btnNavigateText: {
+    color: '#2e7d32',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
   btnCopy: {
-    flex: 1,
+    flex: 1.2,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#ffd591',
@@ -321,7 +473,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   btnDelete: {
-    paddingHorizontal: 10,
+    paddingHorizontal: 9,
     paddingVertical: 7,
     backgroundColor: '#fee',
     borderRadius: 6,

@@ -482,6 +482,14 @@ export const getLeafletHtml = () => `
           }
         } else if (data.type === 'MEASURE_CLEAR') {
           clearAllMeasure();
+        } else if (data.type === 'APPEND_MEASURE_POINT') {
+          if (!measureMode) measureMode = data.mode || 'distance';
+          var newLL = L.latLng(data.lat, data.lon);
+          measurePoints.push(newLL);
+          updateMeasureGraphics(false);
+          if (data.follow) {
+            map.panTo(newLL);
+          }
         } else if (data.type === 'UPDATE_USER_LOCATION') {
           updateUserLocationMarker(data.lat, data.lon, data.heading, data.showHeading);
           if (data.follow) {

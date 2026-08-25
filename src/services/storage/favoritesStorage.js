@@ -18,9 +18,22 @@ export const getFavorites = async () => {
 };
 
 /**
- * Guarda o actualiza una parcela en favoritos
+ * Guarda directamente una lista completa de favoritos (útil para restaurar backups)
  */
-export const saveFavorite = async (parcel, customName = '', notes = '') => {
+export const saveFavoritesList = async (list) => {
+  try {
+    await AsyncStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(list || []));
+    return list;
+  } catch (e) {
+    console.error('Error guardando lista de favoritos:', e);
+    throw e;
+  }
+};
+
+/**
+ * Guarda o actualiza una parcela en favoritos con fotos opcionales
+ */
+export const saveFavorite = async (parcel, customName = '', notes = '', photos = []) => {
   try {
     const current = await getFavorites();
     const cleanRef = String(parcel.ref20 || parcel.refCat || parcel.id || '').trim();
@@ -35,6 +48,7 @@ export const saveFavorite = async (parcel, customName = '', notes = '') => {
       address: parcel.address || 'Ubicación Catastral',
       customName: (customName || '').trim() || parcel.address || 'Parcela Guardada',
       notes: (notes || '').trim(),
+      photos: Array.isArray(photos) ? photos : [],
       lat: parcel.lat,
       lon: parcel.lon,
       region: parcel.region || 'ES',

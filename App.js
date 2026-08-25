@@ -28,6 +28,7 @@ import { saveMeasurement } from './src/services/storage/measurementsStorage';
 import { exportMeasurementToKml } from './src/services/export/kmlExporter';
 import { importKmlFile } from './src/services/export/kmlImporter';
 import { headingTracker } from './src/services/location/headingTracker';
+import { gpsWalkTracker } from './src/services/location/gpsWalkTracker';
 import { checkAppUpdate } from './src/utils/versionChecker';
 
 // Componentes modulares
@@ -108,8 +109,9 @@ export default function App() {
   const [fichaPdfUrl, setFichaPdfUrl] = useState(null);
   const [fichaPdfDataUrl, setFichaPdfDataUrl] = useState(null);
 
-  // --- Estados de Geolocalización y Brújula en Vivo ---
+  // --- Estados de Geolocalización, Brújula y Grabación de Caminata ---
   const [isLiveTracking, setIsLiveTracking] = useState(false);
+  const [isWalkingRecording, setIsWalkingRecording] = useState(false);
 
   const mapViewerRef = useRef(null);
   const typingTimer = useRef(null);
@@ -366,6 +368,10 @@ export default function App() {
   };
 
   const exitMeasureMode = () => {
+    if (isWalkingRecording) {
+      gpsWalkTracker.stopRecording();
+      setIsWalkingRecording(false);
+    }
     setMeasureMode(null);
     setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0, snapped: false });
     setCurrentMeasurePoints([]);
@@ -383,9 +389,41 @@ export default function App() {
   };
 
   const clearMeasurePoints = () => {
+    if (isWalkingRecording) {
+      gpsWalkTracker.stopRecording();
+      setIsWalkingRecording(false);
+    }
     setMeasureStats({ distance: 0, area: 0, perimeter: 0, pointsCount: 0, snapped: false });
     setCurrentMeasurePoints([]);
     mapViewerRef.current?.postMessage({ type: 'MEASURE_CLEAR' });
+  };
+
+  const handleToggleWalkRecording = async () => {
+    if (isWalkingRecording) {
+      gpsWalkTracker.stopRecording();
+      setIsWalkingRecording(false);
+      Alert.alert('Caminata Finalizada', `Se han registrado los vértices del perímetro en el mapa.`);
+    } else {
+      try {
+        const modeToUse = measureMode || 'area';
+        if (!measureMode) {
+          startMeasureMode('area');
+        }
+        setIsWalkingRecording(true);
+        await gpsWalkTracker.startRecording(({ point }) => {
+          mapViewerRef.current?.postMessage({
+            type: 'APPEND_MEASURE_POINT',
+            lat: point.lat,
+            lon: point.lon,
+            mode: modeToUse,
+            follow: true
+          });
+        });
+      } catch (err) {
+        Alert.alert('Error', 'No se pudo iniciar el modo caminar: ' + (err.message || err.toString()));
+        setIsWalkingRecording(false);
+      }
+    }
   };
 
   // --- Exportación e Importación KML ---
@@ -470,9 +508,9 @@ export default function App() {
     setSaveFavModalVisible(true);
   };
 
-  const handleSaveFavoriteParcel = async (parcel, customName, notes) => {
+  const handleSaveFavoriteParcel = async (parcel, customName, notes, photos) => {
     try {
-      await saveFavorite(parcel, customName, notes);
+      await saveFavorite(parcel, customName, notes, photos);
       Alert.alert('Favorito Guardado', `"${customName}" se ha guardado en tus favoritos.`);
     } catch (e) {
       Alert.alert('Error', 'No se pudo guardar el favorito.');
@@ -947,6 +985,8 @@ export default function App() {
           toggleSnap={toggleSnap}
           undoMeasurePoint={undoMeasurePoint}
           clearMeasurePoints={clearMeasurePoints}
+          isWalkingRecording={isWalkingRecording}
+          onToggleWalkRecording={handleToggleWalkRecording}
           onOpenSaveModal={() => setSaveMeasureModalVisible(true)}
           onOpenSavedModal={() => setSavedMeasuresModalVisible(true)}
           onExportKml={handleExportKmlCurrent}
@@ -1052,6 +1092,7 @@ export default function App() {
         visible={favModalVisible}
         onClose={() => setFavModalVisible(false)}
         onSelectFavorite={handleSelectFavorite}
+        onDataRestored={() => {}}
       />
 
       <SaveFavoriteModal

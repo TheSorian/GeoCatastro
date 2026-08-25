@@ -18,6 +18,19 @@ export const getSavedMeasurements = async () => {
 };
 
 /**
+ * Guarda directamente una lista completa de mediciones (útil para restaurar backups)
+ */
+export const saveMeasurementsList = async (list) => {
+  try {
+    await AsyncStorage.setItem(MEASUREMENTS_STORAGE_KEY, JSON.stringify(list || []));
+    return list;
+  } catch (e) {
+    console.error('Error guardando lista de mediciones:', e);
+    throw e;
+  }
+};
+
+/**
  * Guarda una nueva medición
  * @param {Object} data { mode: 'distance'|'area', points: Array<{lat, lng}>, stats: { distance, area, perimeter, pointsCount }, name: string, notes: string }
  */

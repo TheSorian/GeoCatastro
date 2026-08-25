@@ -16,6 +16,8 @@ const MeasurePanel = ({
   toggleSnap,
   undoMeasurePoint,
   clearMeasurePoints,
+  isWalkingRecording = false,
+  onToggleWalkRecording,
   onOpenSaveModal,
   onOpenSavedModal,
   onExportKml,
@@ -57,7 +59,7 @@ const MeasurePanel = ({
             </Text>
             <Text style={styles.measureSubText}>
               {measureStats.pointsCount === 0
-                ? 'Toca en el mapa para añadir puntos y medir'
+                ? 'Toca en el mapa o pulsa "Caminar" para medir'
                 : `${measureStats.pointsCount} vértice(s) trazado(s)`}
             </Text>
           </View>
@@ -74,19 +76,34 @@ const MeasurePanel = ({
           </View>
         )}
 
-        {measureStats.snapped && (
+        {isWalkingRecording && (
+          <View style={styles.walkingBadge}>
+            <Text style={styles.walkingBadgeText}>🚶‍♂️ Grabando perímetro GPS en tiempo real...</Text>
+          </View>
+        )}
+
+        {!isWalkingRecording && measureStats.snapped && (
           <View style={styles.snapBadge}>
             <Text style={styles.snapBadgeText}>🧲 Vértice ajustado a esquina oficial</Text>
           </View>
         )}
       </View>
 
-      {/* Fila 1 de Acciones: Edición y Ajuste */}
+      {/* Fila 1 de Acciones: Caminar GPS, Deshacer, Imán, Limpiar */}
       <View style={styles.measureActionsRow}>
+        <TouchableOpacity
+          style={[styles.measureActionBtn, isWalkingRecording ? styles.btnWalkRecording : styles.btnWalkInactive]}
+          onPress={onToggleWalkRecording}
+        >
+          <Text style={[styles.measureActionBtnText, isWalkingRecording && { color: '#fff', fontWeight: 'bold' }]}>
+            {isWalkingRecording ? '⏹️ Detener GPS' : '🚶‍♂️ Caminar'}
+          </Text>
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={[styles.measureActionBtn, !hasPoints && styles.btnDisabled]}
           onPress={undoMeasurePoint}
-          disabled={!hasPoints}
+          disabled={!hasPoints || isWalkingRecording}
         >
           <Text style={styles.measureActionBtnText}>↩ Deshacer</Text>
         </TouchableOpacity>
@@ -103,18 +120,18 @@ const MeasurePanel = ({
         <TouchableOpacity
           style={[styles.measureActionBtn, styles.measureActionBtnDanger, !hasPoints && styles.btnDisabled]}
           onPress={clearMeasurePoints}
-          disabled={!hasPoints}
+          disabled={!hasPoints || isWalkingRecording}
         >
           <Text style={[styles.measureActionBtnText, { color: '#cc0000' }]}>🗑 Limpiar</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Fila 2 de Acciones: Guardar, Historial, KML */}
+      {/* Fila 2 de Acciones: Guardar, Historial, KML, Importar */}
       <View style={[styles.measureActionsRow, { marginTop: 6 }]}>
         <TouchableOpacity
           style={[styles.measureToolBtn, styles.measureToolBtnPrimary, !hasPoints && styles.btnDisabled]}
           onPress={onOpenSaveModal}
-          disabled={!hasPoints}
+          disabled={!hasPoints || isWalkingRecording}
         >
           <Text style={styles.measureToolBtnTextPrimary}>💾 Guardar</Text>
         </TouchableOpacity>
@@ -122,6 +139,7 @@ const MeasurePanel = ({
         <TouchableOpacity
           style={styles.measureToolBtn}
           onPress={onOpenSavedModal}
+          disabled={isWalkingRecording}
         >
           <Text style={styles.measureToolBtnText}>📂 Historial</Text>
         </TouchableOpacity>
@@ -129,7 +147,7 @@ const MeasurePanel = ({
         <TouchableOpacity
           style={[styles.measureToolBtn, !hasPoints && styles.btnDisabled]}
           onPress={onExportKml}
-          disabled={!hasPoints}
+          disabled={!hasPoints || isWalkingRecording}
         >
           <Text style={styles.measureToolBtnText}>📤 KML</Text>
         </TouchableOpacity>
@@ -137,6 +155,7 @@ const MeasurePanel = ({
         <TouchableOpacity
           style={styles.measureToolBtn}
           onPress={onImportKml}
+          disabled={isWalkingRecording}
         >
           <Text style={styles.measureToolBtnText}>📥 Importar</Text>
         </TouchableOpacity>
@@ -222,6 +241,20 @@ const styles = StyleSheet.create({
     marginTop: 3,
     textAlign: 'center',
   },
+  walkingBadge: {
+    marginTop: 6,
+    backgroundColor: '#fee2e2',
+    borderColor: '#ef4444',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  walkingBadgeText: {
+    fontSize: 11,
+    color: '#b91c1c',
+    fontWeight: 'bold',
+  },
   snapBadge: {
     marginTop: 6,
     backgroundColor: '#e6fffa',
@@ -249,6 +282,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#ddd',
+  },
+  btnWalkInactive: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#86efac',
+  },
+  btnWalkRecording: {
+    backgroundColor: '#ef4444',
+    borderColor: '#dc2626',
   },
   measureActionBtnSnapActive: {
     backgroundColor: '#e6fffa',
