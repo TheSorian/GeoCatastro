@@ -202,6 +202,8 @@ export class GipuzkoaProvider {
 
       let subparcels = [];
       let mainAddress = parCode ? `Parcela ${parCode} (${cleanRef})` : `Referencia ${cleanRef} (Gipuzkoa)`;
+      let sCode = '';
+      let portalNum = '';
 
       const isRustic = cleanRef.includes('-');
       let rusticRef = cleanRef;
@@ -288,8 +290,8 @@ export class GipuzkoaProvider {
         try {
           const tooltipUrl = `https://ssl6.gipuzkoa.eus/Catastro/tooltip/urbana.aspx?id=${encodeURIComponent(cleanRef)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`;
           const res = await fetch(tooltipUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-          let sCode = '0001';
-          let portalNum = '001';
+          sCode = '0001';
+          portalNum = '001';
           let streetName = '';
 
           if (res.ok) {

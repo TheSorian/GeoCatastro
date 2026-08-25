@@ -125,13 +125,12 @@ export const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
     var targetDigito = ${JSON.stringify(targetDigito)};
 
     if (targetFinca) {
-      var submitted = false;
-      var fincaCheck = setInterval(function() {
-        if (submitted) return;
+      var triggered = false;
+      function autoOpenFinca() {
+        if (triggered) return;
         var currentUrl = window.location.href || '';
         if (currentUrl.indexOf('finca.asp') !== -1) {
-          submitted = true;
-          clearInterval(fincaCheck);
+          triggered = true;
           return;
         }
 
@@ -154,26 +153,23 @@ export const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
           for (var i = 0; i < links.length; i++) {
             var oc = links[i].getAttribute('onclick') || '';
             if (oc.indexOf(cleanFinca) !== -1) {
-              submitted = true;
-              clearInterval(fincaCheck);
+              triggered = true;
               links[i].click();
               return;
             }
           }
 
-          // B. Llamar a EnviarDatosFinca
-          if (typeof window.EnviarDatosFinca === 'function' && (document.forms['fincas'] || document.querySelector('form[name="fincas"]'))) {
-            submitted = true;
-            clearInterval(fincaCheck);
+          // B. Llamar a EnviarDatosFinca si existe la funcion y el formulario
+          if (typeof window.EnviarDatosFinca === 'function' && (document.fincas || document.forms['fincas'] || document.querySelector('form[name="fincas"]'))) {
+            triggered = true;
             window.EnviarDatosFinca(cleanFinca, cleanDig);
             return;
           }
 
           // C. Enviar formulario fincas directamente
-          var f = document.forms['fincas'] || document.querySelector('form[name="fincas"]');
+          var f = document.fincas || document.forms['fincas'] || document.querySelector('form[name="fincas"]');
           if (f && f.idFinca) {
-            submitted = true;
-            clearInterval(fincaCheck);
+            triggered = true;
             f.idFinca.value = cleanFinca;
             if (f.codDigito) f.codDigito.value = cleanDig;
             f.action = 'finca.asp';
@@ -185,9 +181,9 @@ export const getGipuzkoaInjectedJs = (targetFinca = '', targetDigito = '') => `
             return;
           }
         } catch (e) {}
-      }, 100);
+      }
 
-      setTimeout(function() { clearInterval(fincaCheck); }, 10000);
+      setInterval(autoOpenFinca, 50);
     }
   })();
   true;
