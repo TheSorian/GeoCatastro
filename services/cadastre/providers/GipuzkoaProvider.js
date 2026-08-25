@@ -32,8 +32,60 @@ function latLonToUtm30N(lat, lon) {
 }
 
 /**
+ * Conversión inversa de UTM Huso 30N (EPSG:25830) a WGS84 (Lat, Lon)
+ */
+function utm30NToLatLon(x, y) {
+  const a = 6378137.0;
+  const f = 1 / 298.257223563;
+  const e2 = 2 * f - f * f;
+  const ePrime2 = e2 / (1 - e2);
+
+  const k0 = 0.9996;
+  const x0 = 500000.0;
+  const y0 = 0.0;
+
+  const xRel = x - x0;
+  const yRel = y - y0;
+
+  const M = yRel / k0;
+  const mu = M / (a * (1 - e2 / 4 - 3 * e2 * e2 / 64 - 5 * e2 * e2 * e2 / 256));
+
+  const e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+  const J1 = (3 * e1 / 2 - 27 * Math.pow(e1, 3) / 32);
+  const J2 = (21 * Math.pow(e1, 2) / 16 - 55 * Math.pow(e1, 4) / 32);
+  const J3 = (151 * Math.pow(e1, 3) / 96);
+  const J4 = (1097 * Math.pow(e1, 4) / 512);
+
+  const fp = mu + J1 * Math.sin(2 * mu) + J2 * Math.sin(4 * mu) + J3 * Math.sin(6 * mu) + J4 * Math.sin(8 * mu);
+
+  const C1 = ePrime2 * Math.pow(Math.cos(fp), 2);
+  const T1 = Math.pow(Math.tan(fp), 2);
+  const R1 = a * (1 - e2) / Math.pow(1 - e2 * Math.pow(Math.sin(fp), 2), 1.5);
+  const N1 = a / Math.sqrt(1 - e2 * Math.pow(Math.sin(fp), 2));
+
+  const D = xRel / (N1 * k0);
+
+  const latRad = fp - (N1 * Math.tan(fp) / R1) * (
+    Math.pow(D, 2) / 2
+    - (5 + 3 * T1 + 10 * C1 - 4 * Math.pow(C1, 2) - 9 * ePrime2) * Math.pow(D, 4) / 24
+    + (61 + 90 * T1 + 298 * C1 + 45 * Math.pow(T1, 2) - 252 * ePrime2 - 3 * Math.pow(C1, 2)) * Math.pow(D, 6) / 720
+  );
+
+  const lonRad = (-3 * Math.PI / 180) + (
+    D
+    - (1 + 2 * T1 + C1) * Math.pow(D, 3) / 6
+    + (5 - 2 * C1 + 28 * T1 - 3 * Math.pow(C1, 2) + 8 * ePrime2 + 24 * Math.pow(T1, 2)) * Math.pow(D, 5) / 120
+  ) / Math.cos(fp);
+
+  return {
+    lat: latRad * (180 / Math.PI),
+    lon: lonRad * (180 / Math.PI)
+  };
+}
+
+/**
  * Proveedor para el Catastro Foral de Gipuzkoa (Guipúzcoa)
- * Utiliza los servicios oficiales de b5m (Diputación Foral de Gipuzkoa)
+ * Utiliza los servicios oficiales de b5m y la Sede de Catastro de la Diputación Foral de Gipuzkoa
  */
 export class GipuzkoaProvider {
   constructor() {
@@ -78,7 +130,7 @@ export class GipuzkoaProvider {
           refCat,
           inspireId,
           areaValue,
-          munCode,
+          munCode: parseInt(munCode, 10) || munCode || '69',
           parCode
         };
       }
@@ -133,7 +185,7 @@ export class GipuzkoaProvider {
   }
 
   /**
-   * Obtiene los detalles completos de la parcela e inmuebles
+   * Obtiene los detalles completos de la parcela e inmuebles (con desglose de unidades)
    */
   async fetchFullParcelDetails(refCat, lat, lon) {
     try {
@@ -145,26 +197,70 @@ export class GipuzkoaProvider {
 
       const cleanRef = info?.refCat || refCat || 'Gipuzkoa';
       const parCode = info?.parCode || '';
-      const munCode = info?.munCode || '';
+      const munCode = String(info?.munCode || '69');
       const superficie = info?.areaValue ? `${info.areaValue} m²` : '';
-      const address = parCode ? `Parcela ${parCode} (${cleanRef})` : `Referencia ${cleanRef} (Gipuzkoa)`;
 
-      const subparcels = [
-        {
-          id: cleanRef,
-          ref20: cleanRef,
-          cargo: '001',
-          address,
-          interior: 'Parcela / Inmueble Único',
-          muni: munCode || 'Gipuzkoa',
-          prov: 'Gipuzkoa',
-          del: '20',
-          mun: munCode,
-          parCode: parCode,
-          polCode: '',
-          subareaCode: '1'
+      let subparcels = [];
+      let mainAddress = parCode ? `Parcela ${parCode} (${cleanRef})` : `Referencia ${cleanRef} (Gipuzkoa)`;
+
+      // Consulta y desglose de inmuebles / portales mediante el servicio oficial de Gipuzkoa
+      try {
+        const tooltipUrl = `https://ssl6.gipuzkoa.eus/Catastro/tooltip/urbana.aspx?id=${encodeURIComponent(cleanRef)}&idioma=esp&aytoId=${encodeURIComponent(munCode)}&herr=1`;
+        const res = await fetch(tooltipUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        if (res.ok) {
+          const html = await res.text();
+          const rows = [...html.matchAll(/<tr[^>]*class="textGrid"[^>]*>([\s\S]*?)<\/tr>/gi)].map(m => m[1]);
+          if (rows.length > 0) {
+            subparcels = rows.map((r, idx) => {
+              const cols = [...r.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
+              const street = cols[0] || '';
+              const num = cols[1] ? cols[1].replace(/^0+/, '') : '';
+              const zona = cols[2] || '';
+              const sub = cols[3] || '';
+              const dp = cols[4] || '';
+              const addr = `${street} ${num}`.trim();
+              if (idx === 0 && addr) {
+                mainAddress = addr;
+              }
+              return {
+                id: `${cleanRef}-${idx + 1}`,
+                ref20: cleanRef,
+                cargo: String(idx + 1).padStart(3, '0'),
+                address: addr ? `C/ ${addr}` : mainAddress,
+                interior: `Inmueble ${idx + 1}${zona ? ` (Zona ${zona})` : ''}${sub ? ` Sub. ${sub}` : ''}`,
+                muni: munCode,
+                prov: 'Gipuzkoa',
+                del: '20',
+                mun: munCode,
+                parCode: parCode,
+                polCode: '',
+                subareaCode: String(idx + 1)
+              };
+            });
+          }
         }
-      ];
+      } catch (errScrap) {
+        console.warn('Error obteniendo desglose Gipuzkoa:', errScrap);
+      }
+
+      if (subparcels.length === 0) {
+        subparcels = [
+          {
+            id: cleanRef,
+            ref20: cleanRef,
+            cargo: '001',
+            address: mainAddress,
+            interior: 'Parcela / Inmueble Único',
+            muni: munCode,
+            prov: 'Gipuzkoa',
+            del: '20',
+            mun: munCode,
+            parCode: parCode,
+            polCode: '',
+            subareaCode: '1'
+          }
+        ];
+      }
 
       return {
         parcelDetails: {
@@ -172,8 +268,8 @@ export class GipuzkoaProvider {
           ref20: cleanRef,
           lat,
           lon,
-          address,
-          count: 1,
+          address: mainAddress,
+          count: subparcels.length,
           del: '20',
           mun: munCode,
           parCode,
@@ -195,7 +291,7 @@ export class GipuzkoaProvider {
         address: 'Ubicación Seleccionada (Gipuzkoa)',
         count: 1,
         del: '20',
-        mun: '',
+        mun: '69',
         noExactBuilding: false
       },
       subparcels: [{ id: refCat, ref20: refCat, interior: 'Parcela', address: 'Gipuzkoa' }]
@@ -207,22 +303,42 @@ export class GipuzkoaProvider {
    */
   async openOfficialFicha(refCat, delCode, munCode, parCode, subareaCode, polCode) {
     try {
-      // Apertura de la Sede Electrónica de Gipuzkoa
-      const url = 'https://egoitza.gipuzkoa.eus/es/catastro';
+      const ayto = parseInt(munCode, 10) || '69';
+      // URL oficial de la ficha catastral de Gipuzkoa (detalles, subparcelas, descargas GML/SHP/KML/DXF)
+      const url = `https://ssl6.gipuzkoa.eus/Catastro/tooltip/urbana.aspx?id=${encodeURIComponent(refCat)}&idioma=esp&aytoId=${encodeURIComponent(ayto)}&herr=1`;
       await WebBrowser.openBrowserAsync(url, {
         toolbarColor: '#0055a5', // Azul oficial de Gipuzkoa
         controlsColor: '#ffffff',
         showTitle: true,
       });
     } catch (e) {
-      Alert.alert('Error', 'No se pudo abrir el Visor de Gipuzkoa.');
+      Alert.alert('Error', 'No se pudo abrir la Ficha de Gipuzkoa.');
     }
   }
 
   /**
-   * Obtiene la geometría de la parcela
+   * Obtiene la geometría vectorial de la parcela para el sistema de imán (snapping)
    */
   async fetchParcelGeometry(refCat, lat, lon) {
+    if (!lat || !lon) return [];
+    try {
+      const { x, y } = latLonToUtm30N(lat, lon);
+      const url = `https://b5m.gipuzkoa.eus/api/2.0/topoquery2?coors=${x},${y}&lang=es`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!res.ok) return [];
+      const json = await res.json();
+      for (const f of (json.features || [])) {
+        if (f.geometry && f.geometry.coordinates) {
+          let rings = f.geometry.coordinates;
+          if (f.geometry.type === 'MultiPolygon') rings = rings[0];
+          const outerRing = rings[0];
+          const vertices = outerRing.map(pt => utm30NToLatLon(pt[0], pt[1]));
+          return vertices;
+        }
+      }
+    } catch (e) {
+      console.warn('Error obteniendo geometría Gipuzkoa:', e);
+    }
     return [];
   }
 
@@ -230,6 +346,21 @@ export class GipuzkoaProvider {
    * Obtiene coordenadas a partir de la referencia
    */
   async getCoordsFromRC(rc) {
+    try {
+      const url = `https://b5m.gipuzkoa.eus/api/2.0/toposearch2?q=${encodeURIComponent(rc)}&lang=es`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (!res.ok) return { found: false };
+      const json = await res.json();
+      const docs = json?.response?.docs || [];
+      if (docs.length > 0 && docs[0].lat && docs[0].lon) {
+        return {
+          found: true,
+          lat: parseFloat(docs[0].lat),
+          lon: parseFloat(docs[0].lon),
+          address: docs[0].display_name
+        };
+      }
+    } catch (e) {}
     return { found: false };
   }
 
