@@ -14,17 +14,19 @@
   - Mapas base: Satélite (IGN PNOA, Esri), Topográfico y Callejero.
   - Capa catastral interactiva (Estatal, Navarra, Bizkaia, Álava y Gipuzkoa).
   - Zoom ultra-detallado sin cortes.
-  - **🧭 Orientación con Brújula y Punto Azul:** Seguimiento GPS en tiempo real con halo pulsante y cono direccional de rumbo dinámico estilo Google Maps.
-* 📏 **Herramientas de Medición y KML:**
+  - **🧭 Orientación con Brújula y Punto Azul:** Seguimiento GPS en tiempo real con halo pulsante y cono direccional estilo Google Maps.
+* 📏 **Herramientas de Medición, KML y GPS:**
   - Cálculo en tiempo real de distancias, áreas y perímetros.
   - Ajuste magnético inteligente (*Snapping*) a los vértices oficiales de las parcelas.
+  - **🚶‍♂️ Modo Medir Caminando:** Graba el perímetro físico de una finca en tiempo real con filtro antirruido mientras caminas.
   - **💾 Guardado de Mediciones:** Historial persistente para guardar y recargar trazados sobre el mapa.
   - **📤 Exportación e 📥 Importación KML:** Compatibilidad total con Google Earth, QGIS y visores GIS.
 * ⭐ **Gestor de Favoritos y Fincas Guardadas:**
-  - Guarda tus parcelas con nombre personalizado y notas privadas.
-  - Buscador de favoritos y salto directo a la parcela en el mapa.
+  - Guarda tus parcelas con nombre personalizado, notas privadas y **📸 fotos adjuntas (cámara o galería)** con visor a pantalla completa.
+  - **🚗 Botón "Cómo llegar":** Abre directamente Google Maps, Waze o Apple Maps con la ruta GPS calculada hasta el centroide.
+  - **📦 Copia de Seguridad Unificada (JSON):** Exporta e importa todas tus fincas y mediciones en un único archivo.
 * 🔎 **Buscador Multi-Criterio y Rústico:**
-  - **🌾 Búsqueda Rústica:** Localización directa por Provincia, Municipio, Polígono y Parcela.
+  - **🌾 Búsqueda Rústica Directa:** Localización por Provincia, Municipio (con autocompletado), Polígono y Parcela.
   - Búsqueda por dirección, calle, número, o nombre de pueblo/pedanía.
   - Búsqueda directa por Referencia Catastral (14 y 20 caracteres).
   - Búsqueda por coordenadas GPS.
@@ -35,7 +37,7 @@
 * ⚙️ **Otras Utilidades:**
   - Historial persistente de búsquedas recientes.
   - Guardado de DNI/NIF para autocompletar rápidamente el acceso a consultas protegidas.
-  - Actualizaciones automáticas (In-App) desde GitHub Releases.
+  - Actualizaciones automáticas (In-App) desde GitHub Releases y Expo Updates.
 
 ---
 
